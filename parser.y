@@ -38,15 +38,14 @@
 
 %%
 
-start                   : inputline { free($1); }
-                        ;
-
 inputline               : chain AND_STATEMENT { runCommand($1); activeOperator = AO_AND_STATEMENT; } inputline
                         | chain AND_OP { runCommand($1); activeOperator = AO_AND_OPERATOR; } inputline
                         | chain OR_OP { runCommand($1); activeOperator = AO_OR_OPERATOR; } inputline
                         | chain SEMICOLON { runCommand($1); activeOperator = AO_SEMICOLON; } inputline
                         | chain NEWLINE { runCommand($1); activeOperator = AO_NEWLINE; } inputline 
                         | chain { runCommand($1); activeOperator = AO_NONE; }
+                        | SEMICOLON { activeOperator = AO_SEMICOLON; } inputline
+                        | NEWLINE { activeOperator = AO_NEWLINE; } inputline
                         | /* empty */ { activeOperator = AO_NONE; }
                         ;
 
@@ -70,6 +69,8 @@ command                 : WORD options { $$ = createCommand($1, $2); }
 
 options                 : options STRING { $$ = addArg($1, $2);}
                         | options WORD { $$ = addArg($1, $2); }
+                        | options EXIT_KEYWORD { $$ = addArg($1, strdup("exit")); }
+                        | options STATUS_KEYWORD { $$ = addArg($1, strdup("status")); }
                         | /* empty */ { $$ = createArgs(); }
 
 builtin                 : EXIT_KEYWORD { $$ = BIC_EXIT; }
