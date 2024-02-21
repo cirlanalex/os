@@ -5,8 +5,20 @@
 #include "usage.h"
 
 extern int *status;
+extern char *currentPath;
 extern ActiveOperator activeOperator;
+extern ActiveOperator futureOperator;
 extern void finalizeParser();
+
+void printColor(char *color, char *msg) {
+    fprintf(stdout, "%s%s\x1b[0m", color, msg);
+}
+
+void printPrompt() {
+    if (futureOperator == AO_NEWLINE) {
+        fprintf(stdout, "%s> ", currentPath);
+    }
+}
 
 // handle built-in commands
 void builtInCommandHandler(Command *command) {
@@ -33,21 +45,25 @@ void builtInCommandHandler(Command *command) {
 void runCommand(Command *command) {
     // check active operator to see if command should be run
     if (activeOperator == AO_AND_STATEMENT) { // TODO IN FUTURE ASSIGNMENT
+        printPrompt();
         freeCommand(command);
         return;
     }
     // for && don't run if the previous command failed
     if (activeOperator == AO_AND_OPERATOR && status != NULL && *status != 0) {
+        printPrompt();
         freeCommand(command);
         return;
     }
     // for || don't run if the previous command succeeded
     if (activeOperator == AO_OR_OPERATOR && status != NULL && *status == 0) {
+        printPrompt();
         freeCommand(command);
         return;
     }
     if (command->builtInCommand != BIC_NONE) {
         builtInCommandHandler(command);
+        printPrompt();
         freeCommand(command);
         return;
     }
@@ -58,13 +74,13 @@ void runCommand(Command *command) {
     pid_t pid = fork();
 
     if (pid < 0) {
-        fprintf(stderr, "fork() could not create a child process!\n");
+        printColor("\033[0;31m", "fork() could not create a child process!\n");
         freeCommand(command);
         exit(EXIT_SUCCESS); /* EXIT_SUCCESS because we use Themis */
     } else if (pid == 0) {
         // child code
         execvp(command->commandName, command->commandArgs->args);
-        fprintf(stdout, "Error: command not found!\n");
+        printColor("\033[0;31m", "Error: command not found!\n");
         freeCommand(command);
         exit(127);
     } else {
@@ -73,6 +89,7 @@ void runCommand(Command *command) {
         if (WIFEXITED(*status)) {
             *status = WEXITSTATUS(*status); // get the exit status in regular format
         }
+        printPrompt();
         freeCommand(command);
     }
 }

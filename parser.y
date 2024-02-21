@@ -2,6 +2,7 @@
     #include <stdio.h>
     #include <stdlib.h>
     #include <string.h>
+    #include <unistd.h>
     #include "structs.h"
     #include "usage.h"
 
@@ -9,11 +10,17 @@
     extern int yylex(void);
     extern void initLexer();
     extern void finalizeLexer();
+    extern void printColor(char *color, char *msg);
+    extern void printPrompt();
 
     // remember the previous operator to be used
     ActiveOperator activeOperator = AO_NONE;
+    // remember the future operator to be used
+    ActiveOperator futureOperator = AO_NEWLINE;
     // remember the status of the last command
     int *status = NULL;
+    // remember the current path
+    char *currentPath = NULL;
 %}
 
 %token EXIT_KEYWORD AND_OP OR_OP SEMICOLON NEWLINE AND_STATEMENT OR_STATEMENT INPUT_REDIRECT OUTPUT_REDIRECT STATUS_KEYWORD
@@ -36,15 +43,15 @@
 
 %%
 
-inputline               : chain AND_STATEMENT { runCommand($1); activeOperator = AO_AND_STATEMENT; } inputline
-                        | chain AND_OP { runCommand($1); activeOperator = AO_AND_OPERATOR; } inputline
-                        | chain OR_OP { runCommand($1); activeOperator = AO_OR_OPERATOR; } inputline
-                        | chain SEMICOLON { runCommand($1); activeOperator = AO_SEMICOLON; } inputline  // allow use of semicolon as a command separator
-                        | chain NEWLINE { runCommand($1); activeOperator = AO_NEWLINE; } inputline      // allow use of newline as a command separator
-                        | chain { runCommand($1); activeOperator = AO_NONE; }
-                        | SEMICOLON { activeOperator = AO_SEMICOLON; } inputline    // inappropriate semicolon usage is not considered an error
-                        | NEWLINE { activeOperator = AO_NEWLINE; } inputline        // inappropriate newline usage is not considered an error
-                        | /* empty */ { activeOperator = AO_NONE; }
+inputline               : chain AND_STATEMENT { futureOperator = AO_AND_STATEMENT; runCommand($1); activeOperator = AO_AND_STATEMENT; } inputline
+                        | chain AND_OP { futureOperator = AO_AND_OPERATOR; runCommand($1); activeOperator = AO_AND_OPERATOR; } inputline
+                        | chain OR_OP { futureOperator = AO_OR_OPERATOR; runCommand($1); activeOperator = AO_OR_OPERATOR; } inputline
+                        | chain SEMICOLON { futureOperator = AO_SEMICOLON; runCommand($1); activeOperator = AO_SEMICOLON; } inputline  // allow use of semicolon as a command separator
+                        | chain NEWLINE { futureOperator = AO_NEWLINE; runCommand($1); activeOperator = AO_NEWLINE; } inputline      // allow use of newline as a command separator
+                        | chain { futureOperator = AO_NONE; runCommand($1); activeOperator = AO_NONE; }
+                        | SEMICOLON { futureOperator = AO_SEMICOLON; activeOperator = AO_SEMICOLON; } inputline    // inappropriate semicolon usage is not considered an error
+                        | NEWLINE { futureOperator = AO_NEWLINE; activeOperator = AO_NEWLINE; } inputline        // inappropriate newline usage is not considered an error
+                        | /* empty */ { futureOperator = AO_NONE; activeOperator = AO_NONE; }
                         ;
 
 chain                   : pipeline redirections { $$ = $1; } // redirections are not implemented yet
@@ -84,11 +91,14 @@ void finalizeParser() {
     if (status != NULL) {
         free(status);
     }
+    if (currentPath != NULL) {
+        free(currentPath);
+    }
     finalizeLexer();
 }
 
 void yyerror (char *msg) {
-    fprintf(stdout, "Error: invalid syntax!\n");
+    printColor("\033[0;31m", "Error: invalid syntax!\n");
     finalizeParser();
     exit(EXIT_SUCCESS);  /* EXIT_SUCCESS because we use Themis */
 }
@@ -96,6 +106,13 @@ void yyerror (char *msg) {
 int main() {
     // Initialize program
     initLexer();
+
+    // Get current path
+    currentPath = malloc(1024 * sizeof(char));
+
+    getcwd(currentPath, 1024 * sizeof(char));
+
+    printPrompt();
 
     // Start parsing process
     yyparse();
