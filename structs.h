@@ -5,7 +5,8 @@
 typedef enum BuiltInCommand {
     BIC_NONE,
     BIC_EXIT,
-    BIC_STATUS 
+    BIC_STATUS,
+    BIC_CD
 } BuiltInCommand;
 
 // structure for command arguments

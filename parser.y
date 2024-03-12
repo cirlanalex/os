@@ -23,7 +23,7 @@
     char *currentPath = NULL;
 %}
 
-%token EXIT_KEYWORD AND_OP OR_OP SEMICOLON NEWLINE AND_STATEMENT OR_STATEMENT INPUT_REDIRECT OUTPUT_REDIRECT STATUS_KEYWORD
+%token EXIT_KEYWORD AND_OP OR_OP SEMICOLON NEWLINE AND_STATEMENT OR_STATEMENT INPUT_REDIRECT OUTPUT_REDIRECT STATUS_KEYWORD CD_KEYWORD
 
 %token <stringValue> STRING
 %token <stringValue> WORD
@@ -76,10 +76,12 @@ options                 : options STRING { $$ = addArg($1, $2);}
                         | options WORD { $$ = addArg($1, $2); }
                         | options EXIT_KEYWORD { $$ = addArg($1, strdup("exit")); }
                         | options STATUS_KEYWORD { $$ = addArg($1, strdup("status")); }
+                        | options CD_KEYWORD { $$ = addArg($1, strdup("cd")); }
                         | /* empty */ { $$ = createArgs(); }
 
 builtin                 : EXIT_KEYWORD { $$ = BIC_EXIT; }
                         | STATUS_KEYWORD { $$ = BIC_STATUS; }
+                        | CD_KEYWORD { $$ = BIC_CD; }
                         ;
 
 %%

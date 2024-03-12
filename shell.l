@@ -103,6 +103,12 @@ void finalizeLexer();
                         // REJECT;
                     }
 
+"cd"                {
+                        //////////// Put your code here!
+                        return CD_KEYWORD;
+                        // REJECT;
+                    }
+
     /* Other grammar parts */
 "\""                BEGIN(string); /* We start reading a string until the next " char */
 "&&"                {

@@ -1,0 +1,9 @@
+## Display a prompt before each input line
+This was done, and it displays the directory of the user. It also updates after using CD.
+
+## Implement a built-in cd command to change directories
+This was done and everything works fine. This also updates the prompt before each input line. This is not togglable due to difficulties of introducing
+#if flags in the lexer and parser.
+
+## Add support for displaying colors.
+Every error was set the text color as red.

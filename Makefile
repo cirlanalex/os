@@ -15,7 +15,7 @@ structs: structs.c structs.h
 	gcc -c structs.c
 
 usage: usage.c usage.h
-	gcc -c usage.c
+	gcc -c usage.c -DEXT_PROMPT
 
 clean:
 	rm -f lex.yy.c

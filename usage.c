@@ -11,13 +11,19 @@ extern ActiveOperator futureOperator;
 extern void finalizeParser();
 
 void printColor(char *color, char *msg) {
+    #if EXT_PROMPT
     fprintf(stdout, "%s%s\x1b[0m", color, msg);
+    #else
+    fprintf(stdout, "%s", msg);
+    #endif
 }
 
 void printPrompt() {
+    #if EXT_PROMPT
     if (futureOperator == AO_NEWLINE) {
         fprintf(stdout, "%s> ", currentPath);
     }
+    #endif
 }
 
 // handle built-in commands
@@ -36,6 +42,17 @@ void builtInCommandHandler(Command *command) {
                 fprintf(stdout ,"The most recent exit code is: %d\n", *status);
             } else {
                 fprintf(stdout, "The most recent exit code is: 0\n");
+            }
+            break;
+        case BIC_CD:
+            if (command->commandArgs->numArgs > 0) {
+                if (chdir(command->commandArgs->args[0]) != 0) {
+                    printColor("\033[0;31m", "Error: directory not found!\n");
+                } else {
+                    getcwd(currentPath, 1024 * sizeof(char));
+                }
+            } else {
+                printColor("\033[0;31m", "Error: no directory specified!\n");
             }
             break;
     }
