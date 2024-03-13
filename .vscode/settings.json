@@ -1,0 +1,11 @@
+{
+    "files.associations": {
+        "*.fl": "c",
+        "*.lex": "c",
+        "*.g": "c",
+        "*.y": "c",
+        "usage.h": "c",
+        "stdio.h": "c",
+        "string.h": "c"
+    }
+}

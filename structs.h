@@ -22,6 +22,12 @@ typedef struct Command {
     BuiltInCommand builtInCommand;
 } Command;
 
+// structure for pipeline
+typedef struct Pipeline {
+    Command **commands;
+    int numCommands;
+} Pipeline;
+
 // types of operators
 typedef enum ActiveOperator {
     AO_NONE,
@@ -32,6 +38,24 @@ typedef enum ActiveOperator {
     AO_NEWLINE
 } ActiveOperator;
 
+// structure for redirections
+typedef struct Redirections {
+    char *inputFile;
+    char *outputFile;
+} Redirections;
+
+// structure for pipeline redirections
+typedef struct PipelineRedirections {
+    Pipeline *pipeline;
+    Redirections *redirections;
+} PipelineRedirections;
+
+// structure for chain
+typedef struct Chain {
+    PipelineRedirections *pipelineRedirections;
+    Command *BuiltInCommand;
+} Chain;
+
 Args *createArgs();
 Args *addArg(Args *args, char *arg);
 void freeArgs(Args *args);
@@ -39,5 +63,18 @@ void freeArgs(Args *args);
 Command *createCommand(char *commandName, Args *commandArgs);
 Command *createBuiltInCommand(BuiltInCommand builtInCommand, Args *commandArgs);
 void freeCommand(Command *command);
+
+Pipeline *createPipeline(Command *command);
+Pipeline *addCommandToPipeline(Pipeline *pipeline, Command *command);
+void freePipeline(Pipeline *pipeline);
+
+Redirections *createRedirections(char *inputFile, char *outputFile);
+void freeRedirections(Redirections *redirections);
+
+PipelineRedirections *createPipelineRedirections(Pipeline *pipeline, Redirections *redirections);
+void freePipelineRedirections(PipelineRedirections *pipelineRedirections);
+
+Chain *createChain(PipelineRedirections *pipelineRedirections, Command *BuiltInCommand);
+void freeChain(Chain *chain);
 
 #endif

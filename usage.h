@@ -3,7 +3,9 @@
 
 #include "structs.h"
 
-void builtInCommandHandler(Command *command);
-void runCommand(Command *command);
+void runBuiltInCommand(Chain *chain);
+// void runCommand(Command *command);
+void runCommand(Command *command, int input, int ouput);
+void runChain(Chain *chain);
 
 #endif

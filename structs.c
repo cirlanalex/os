@@ -62,3 +62,82 @@ void freeCommand(Command *command) {
     freeArgs(command->commandArgs);
     free(command);
 }
+
+// create a pipeline
+Pipeline *createPipeline(Command *command) {
+    Pipeline *pipeline = malloc(sizeof(Pipeline));
+    pipeline->commands = malloc(sizeof(Command *));
+    pipeline->commands[0] = command;
+    pipeline->numCommands = 1;
+    return pipeline;
+}
+
+// add a command to a pipeline
+Pipeline *addCommandToPipeline(Pipeline *pipeline, Command *command) {
+    pipeline->commands = realloc(pipeline->commands, (pipeline->numCommands + 1) * sizeof(Command *));
+    pipeline->commands[pipeline->numCommands] = command;
+    pipeline->numCommands++;
+    return pipeline;
+}
+
+// free a pipeline
+void freePipeline(Pipeline *pipeline) {
+    for (int i = 0; i < pipeline->numCommands; i++) {
+        freeCommand(pipeline->commands[i]);
+    }
+    free(pipeline->commands);
+    free(pipeline);
+}
+
+// create redirections
+Redirections *createRedirections(char *inputFile, char *outputFile) {
+    Redirections *redirections = malloc(sizeof(Redirections));
+    redirections->inputFile = inputFile;
+    redirections->outputFile = outputFile;
+    return redirections;
+}
+
+// free redirections
+void freeRedirections(Redirections *redirections) {
+    if (redirections->inputFile != NULL) {
+        free(redirections->inputFile);
+    }
+    if (redirections->outputFile != NULL) {
+        free(redirections->outputFile);
+    }
+    free(redirections);
+}
+
+// create a pipeline redirections
+PipelineRedirections *createPipelineRedirections(Pipeline *pipeline, Redirections *redirections) {
+    PipelineRedirections *pipelineRedirections = malloc(sizeof(PipelineRedirections));
+    pipelineRedirections->pipeline = pipeline;
+    pipelineRedirections->redirections = redirections;
+    return pipelineRedirections;
+}
+
+// free a pipeline redirections
+void freePipelineRedirections(PipelineRedirections *pipelineRedirections) {
+    freeRedirections(pipelineRedirections->redirections);
+    freePipeline(pipelineRedirections->pipeline);
+    free(pipelineRedirections);
+}
+
+// create a chain
+Chain *createChain(PipelineRedirections *pipelineRedirections, Command *BuiltInCommand) {
+    Chain *chain = malloc(sizeof(Chain));
+    chain->pipelineRedirections = pipelineRedirections;
+    chain->BuiltInCommand = BuiltInCommand;
+    return chain;
+}
+
+// free a chain
+void freeChain(Chain *chain) {
+    if (chain->pipelineRedirections != NULL) {
+        freePipelineRedirections(chain->pipelineRedirections);
+    }
+    if (chain->BuiltInCommand != NULL) {
+        freeCommand(chain->BuiltInCommand);
+    }
+    free(chain);
+}

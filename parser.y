@@ -31,42 +31,46 @@
 %type <builtInCommand> builtin
 %type <args> options
 %type <executableCommand> command
-%type <executableCommand> pipeline    // TO CHANGE IN FUTURE ASSIGNMENT
-%type <executableCommand> chain       // TO CHANGE IN FUTURE ASSIGNMENT
+%type <pipeline> pipeline
+%type <redirections> redirections
+%type <chain> chain
 
 %union {
-    char *stringValue;
+    Chain *chain;
+    BuiltInCommand builtInCommand;
+    Pipeline *pipeline;
+    Redirections *redirections;
     Command *executableCommand;
     Args *args;
-    BuiltInCommand builtInCommand;
+    char *stringValue;
 }
 
 %%
 
-inputline               : chain AND_STATEMENT { futureOperator = AO_AND_STATEMENT; runCommand($1); activeOperator = AO_AND_STATEMENT; } inputline
-                        | chain AND_OP { futureOperator = AO_AND_OPERATOR; runCommand($1); activeOperator = AO_AND_OPERATOR; } inputline
-                        | chain OR_OP { futureOperator = AO_OR_OPERATOR; runCommand($1); activeOperator = AO_OR_OPERATOR; } inputline
-                        | chain SEMICOLON { futureOperator = AO_SEMICOLON; runCommand($1); activeOperator = AO_SEMICOLON; } inputline  // allow use of semicolon as a command separator
-                        | chain NEWLINE { futureOperator = AO_NEWLINE; runCommand($1); activeOperator = AO_NEWLINE; } inputline      // allow use of newline as a command separator
-                        | chain { futureOperator = AO_NONE; runCommand($1); activeOperator = AO_NONE; }
+inputline               : chain AND_STATEMENT { futureOperator = AO_AND_STATEMENT; runChain($1); activeOperator = AO_AND_STATEMENT; } inputline
+                        | chain AND_OP { futureOperator = AO_AND_OPERATOR; runChain($1); activeOperator = AO_AND_OPERATOR; } inputline
+                        | chain OR_OP { futureOperator = AO_OR_OPERATOR; runChain($1); activeOperator = AO_OR_OPERATOR; } inputline
+                        | chain SEMICOLON { futureOperator = AO_SEMICOLON; runChain($1); activeOperator = AO_SEMICOLON; } inputline  // allow use of semicolon as a command separator
+                        | chain NEWLINE { futureOperator = AO_NEWLINE; runChain($1); activeOperator = AO_NEWLINE; } inputline      // allow use of newline as a command separator
+                        | chain { futureOperator = AO_NONE; runChain($1); activeOperator = AO_NONE; }
                         | SEMICOLON { futureOperator = AO_SEMICOLON; activeOperator = AO_SEMICOLON; } inputline    // inappropriate semicolon usage is not considered an error
                         | NEWLINE { futureOperator = AO_NEWLINE; activeOperator = AO_NEWLINE; } inputline        // inappropriate newline usage is not considered an error
                         | /* empty */ { futureOperator = AO_NONE; activeOperator = AO_NONE; }
                         ;
 
-chain                   : pipeline redirections { $$ = $1; } // redirections are not implemented yet
-                        | builtin options { $$ = createBuiltInCommand($1, $2); }
+chain                   : pipeline redirections { $$ = createChain(createPipelineRedirections($1, $2), NULL); }
+                        | builtin options { $$ = createChain(NULL, createBuiltInCommand($1, $2)); }
                         ;
 
-redirections            : INPUT_REDIRECT WORD OUTPUT_REDIRECT WORD { free($2); free($4); }  // TODO IN FUTURE ASSIGNMENT
-                        | OUTPUT_REDIRECT WORD INPUT_REDIRECT WORD { free($2); free($4); }  // TODO IN FUTURE ASSIGNMENT
-                        | OUTPUT_REDIRECT WORD { free($2); }                                // TODO IN FUTURE ASSIGNMENT
-                        | INPUT_REDIRECT WORD { free($2); }                                 // TODO IN FUTURE ASSIGNMENT
-                        | /* empty */
+redirections            : INPUT_REDIRECT WORD OUTPUT_REDIRECT WORD { $$ = createRedirections($2, $4);}
+                        | OUTPUT_REDIRECT WORD INPUT_REDIRECT WORD { $$ = createRedirections($4, $2);}
+                        | OUTPUT_REDIRECT WORD { $$ = createRedirections(NULL, $2); }
+                        | INPUT_REDIRECT WORD { $$ = createRedirections($2, NULL); }
+                        | /* empty */ { $$ = createRedirections(NULL, NULL); }
                         ;
 
-pipeline                : command OR_STATEMENT pipeline { $$ = $1; }                        // TODO IN FUTURE ASSIGNMENT
-                        | command { $$ = $1; }
+pipeline                : pipeline OR_STATEMENT command { $$ = addCommandToPipeline($1, $3); }
+                        | command { $$ = createPipeline($1); }
                         ;
 
 command                 : WORD options { $$ = createCommand($1, $2); }
@@ -115,6 +119,9 @@ int main() {
     getcwd(currentPath, 1024 * sizeof(char));
 
     printPrompt();
+
+    setbuf(stdin, NULL);
+    setbuf(stdout, NULL);
 
     // Start parsing process
     yyparse();
