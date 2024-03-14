@@ -110,6 +110,8 @@ void yyerror (char *msg) {
 }
 
 int main() {
+    setbuf(stdin, NULL);
+    setbuf(stdout, NULL);
     // Initialize program
     initLexer();
 
@@ -119,9 +121,6 @@ int main() {
     getcwd(currentPath, 1024 * sizeof(char));
 
     printPrompt();
-
-    setbuf(stdin, NULL);
-    setbuf(stdout, NULL);
 
     // Start parsing process
     yyparse();

@@ -118,7 +118,31 @@ void runBuiltInCommand(Chain *chain) {
 //     }
 // }
 
-void runCommand(Command *command, int input, int ouput) {
+// int runCommand(Command *command, int input, int ouput) {
+//     pid_t pid = fork();
+//     if (pid < 0) {
+//         printColor("\033[0;31m", "Error: fork() could not create a child process!\n");
+//         freeCommand(command);
+//         exit(EXIT_SUCCESS); /* EXIT_SUCCESS because we use Themis */
+//     } else if (pid == 0) {
+//         // child code
+//         if (input != STDIN_FILENO) {
+//             dup2(input, STDIN_FILENO);
+//             close(input);
+//         }
+//         if (ouput != STDOUT_FILENO) {
+//             dup2(ouput, STDOUT_FILENO);
+//             close(ouput);
+//         }
+//         execvp(command->commandName, command->commandArgs->args);
+//         printColor("\033[0;31m", "Error: command not found!\n");
+//         freeCommand(command);
+//         exit(127);
+//     }
+//     return pid;
+// }
+
+int runCommand(Command *command, int pipeIn[2], int pipeOut[2], int hasInput, int hasOutput, int input, int output) {
     pid_t pid = fork();
     if (pid < 0) {
         printColor("\033[0;31m", "Error: fork() could not create a child process!\n");
@@ -126,19 +150,37 @@ void runCommand(Command *command, int input, int ouput) {
         exit(EXIT_SUCCESS); /* EXIT_SUCCESS because we use Themis */
     } else if (pid == 0) {
         // child code
-        if (input != STDIN_FILENO) {
-            dup2(input, STDIN_FILENO);
-            close(input);
+        if (hasInput) {
+            close(pipeIn[1]);
+            dup2(pipeIn[0], STDIN_FILENO);
+            if (pipeIn[0] != STDIN_FILENO) {
+                dup2(pipeIn[0], STDIN_FILENO);
+                close(pipeIn[0]);
+            }
+        } else {
+            if (input != STDIN_FILENO) {
+                dup2(input, STDIN_FILENO);
+                close(input);
+            }
         }
-        if (ouput != STDOUT_FILENO) {
-            dup2(ouput, STDOUT_FILENO);
-            close(ouput);
+        if (hasOutput) {
+            close(pipeOut[0]);
+            if (pipeOut[1] != STDOUT_FILENO) {
+                dup2(pipeOut[1], STDOUT_FILENO);
+                close(pipeOut[1]);
+            }
+        } else {
+            if (output != STDOUT_FILENO) {
+                dup2(output, STDOUT_FILENO);
+                close(output);
+            }
         }
         execvp(command->commandName, command->commandArgs->args);
         printColor("\033[0;31m", "Error: command not found!\n");
         freeCommand(command);
         exit(127);
-    } 
+    }
+    return pid;
 }
 
 // handle running chains
@@ -184,6 +226,7 @@ void runChain(Chain *chain) {
     // run the pipeline if it exists
     int numCommands = chain->pipelineRedirections->pipeline->numCommands;
     int **pipeFiles = malloc((numCommands - 1) * sizeof(int *));
+    int *ids = malloc(numCommands * sizeof(int));
     for (int i = 0; i < numCommands - 1; i++) {
         pipeFiles[i] = malloc(2 * sizeof(int));
         if (pipe(pipeFiles[i]) < 0) {
@@ -194,7 +237,19 @@ void runChain(Chain *chain) {
     }
     for (int i = 0; i < numCommands; i++) {
         Command *command = chain->pipelineRedirections->pipeline->commands[i];
-        int input, output;
+        int pipeIn[2], pipeOut[2];
+        int hasInput = i > 0;
+        int hasOutput = i < (numCommands - 1);
+        if (i < numCommands - 1) {
+            pipeOut[0] = pipeFiles[i][0];
+            pipeOut[1] = pipeFiles[i][1];
+        }
+        if (i > 0) {
+            pipeIn[0] = pipeFiles[i-1][0];
+            pipeIn[1] = pipeFiles[i-1][1];
+        }
+        int input = -1;
+        int output = -1;
         if (i == 0) {
             if (inputFile != NULL) {
                 input = open(inputFile, O_RDONLY);
@@ -206,8 +261,6 @@ void runChain(Chain *chain) {
             } else {
                 input = STDIN_FILENO;
             }
-        } else {
-            input = pipeFiles[i - 1][0];
         }
         if (i == numCommands - 1) {
             if (outputFile != NULL) {
@@ -220,22 +273,27 @@ void runChain(Chain *chain) {
             } else {
                 output = STDOUT_FILENO;
             }
-        } else {
-            output = pipeFiles[i][1];
         }
-        runCommand(command, input, output);
+        ids[i] = runCommand(command, pipeIn, pipeOut, hasInput, hasOutput, input, output);
+        // printf("pid: %d, command: %s\n", ids[i], command->commandName);
+
+        if (i > 0) {
+            close(pipeFiles[i-1][0]);
+            close(pipeFiles[i-1][1]);
+        }
     }
 
     for (int i = 0; i < numCommands; i++) {
-        wait(status);
+        waitpid(ids[i], status, 0);
+        // printf("pid: %d, status: %d\n", ids[i], *status);
         if (WIFEXITED(*status)) {
             *status = WEXITSTATUS(*status); // get the exit status in regular format
         }
     }
 
+    free(ids);
+
     for (int i = 0; i < numCommands - 1; i++) {
-        close(pipeFiles[i][0]);
-        close(pipeFiles[i][1]);
         free(pipeFiles[i]);
     }
 
