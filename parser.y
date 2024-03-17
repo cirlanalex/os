@@ -13,6 +13,14 @@
     extern void printColor(char *color, char *msg);
     extern void printPrompt();
 
+    Chain *lastChain = NULL;
+    Pipeline *lastPipeline = NULL;
+    Redirections *lastRedirections = NULL;
+    Command *lastCommand = NULL;
+    Args *lastArgs = NULL;
+    void freeError();
+
+
     // remember the previous operator to be used
     ActiveOperator activeOperator = AO_NONE;
     // remember the future operator to be used
@@ -47,33 +55,37 @@
 
 %%
 
-inputline               : chain AND_STATEMENT { futureOperator = AO_AND_STATEMENT; runChain($1); activeOperator = AO_AND_STATEMENT; } inputline
-                        | chain AND_OP { futureOperator = AO_AND_OPERATOR; runChain($1); activeOperator = AO_AND_OPERATOR; } inputline
-                        | chain OR_OP { futureOperator = AO_OR_OPERATOR; runChain($1); activeOperator = AO_OR_OPERATOR; } inputline
-                        | chain SEMICOLON { futureOperator = AO_SEMICOLON; runChain($1); activeOperator = AO_SEMICOLON; } inputline  // allow use of semicolon as a command separator
-                        | chain NEWLINE { futureOperator = AO_NEWLINE; runChain($1); activeOperator = AO_NEWLINE; } inputline      // allow use of newline as a command separator
-                        | chain { futureOperator = AO_NONE; runChain($1); activeOperator = AO_NONE; }
+input                   : inputline NEWLINE input
+                        | error NEWLINE { freeError(); yyerrok; } input
+                        | /* empty */
+
+inputline               : chain AND_STATEMENT { futureOperator = AO_AND_STATEMENT; runChain($1); activeOperator = AO_AND_STATEMENT; lastChain = NULL; } inputline
+                        | chain AND_OP { futureOperator = AO_AND_OPERATOR; runChain($1); activeOperator = AO_AND_OPERATOR; lastChain = NULL; } inputline
+                        | chain OR_OP { futureOperator = AO_OR_OPERATOR; runChain($1); activeOperator = AO_OR_OPERATOR; lastChain = NULL; } inputline
+                        | chain SEMICOLON { futureOperator = AO_SEMICOLON; runChain($1); activeOperator = AO_SEMICOLON; lastChain = NULL; } inputline  // allow use of semicolon as a command separator
+                        // | chain NEWLINE { futureOperator = AO_NEWLINE; runChain($1); activeOperator = AO_NEWLINE; } inputline      // allow use of newline as a command separator
+                        | chain { futureOperator = AO_NONE; runChain($1); activeOperator = AO_NONE; lastChain = NULL; }
                         | SEMICOLON { futureOperator = AO_SEMICOLON; activeOperator = AO_SEMICOLON; } inputline    // inappropriate semicolon usage is not considered an error
-                        | NEWLINE { futureOperator = AO_NEWLINE; activeOperator = AO_NEWLINE; } inputline        // inappropriate newline usage is not considered an error
+                        // | NEWLINE { futureOperator = AO_NEWLINE; activeOperator = AO_NEWLINE; } inputline        // inappropriate newline usage is not considered an error
                         | /* empty */ { futureOperator = AO_NONE; activeOperator = AO_NONE; }
                         ;
 
-chain                   : pipeline redirections { $$ = createChain(createPipelineRedirections($1, $2), NULL); }
-                        | builtin options { $$ = createChain(NULL, createBuiltInCommand($1, $2)); }
+chain                   : pipeline redirections { $$ = createChain(createPipelineRedirections($1, $2), NULL); lastPipeline = NULL; lastRedirections = NULL; lastChain = $$; }
+                        | builtin options { $$ = createChain(NULL, createBuiltInCommand($1, $2)); lastArgs = NULL; lastChain = $$; }
                         ;
 
-redirections            : INPUT_REDIRECT WORD OUTPUT_REDIRECT WORD { $$ = createRedirections($2, $4);}
-                        | OUTPUT_REDIRECT WORD INPUT_REDIRECT WORD { $$ = createRedirections($4, $2);}
-                        | OUTPUT_REDIRECT WORD { $$ = createRedirections(NULL, $2); }
-                        | INPUT_REDIRECT WORD { $$ = createRedirections($2, NULL); }
-                        | /* empty */ { $$ = createRedirections(NULL, NULL); }
+redirections            : INPUT_REDIRECT WORD OUTPUT_REDIRECT WORD { $$ = createRedirections($2, $4); lastRedirections = $$; }
+                        | OUTPUT_REDIRECT WORD INPUT_REDIRECT WORD { $$ = createRedirections($4, $2); lastRedirections = $$; }
+                        | OUTPUT_REDIRECT WORD { $$ = createRedirections(NULL, $2); lastRedirections = $$;}
+                        | INPUT_REDIRECT WORD { $$ = createRedirections($2, NULL); lastRedirections = $$;}
+                        | /* empty */ { $$ = createRedirections(NULL, NULL); lastRedirections = $$;}
                         ;
 
-pipeline                : pipeline OR_STATEMENT command { $$ = addCommandToPipeline($1, $3); }
-                        | command { $$ = createPipeline($1); }
+pipeline                : pipeline OR_STATEMENT command { $$ = addCommandToPipeline($1, $3); lastCommand = NULL; }
+                        | command { $$ = createPipeline($1); lastCommand = NULL; lastPipeline = $$; }
                         ;
 
-command                 : WORD options { $$ = createCommand($1, $2); }
+command                 : WORD options { $$ = createCommand($1, $2); lastArgs = NULL; lastCommand = $$; }
                         ;
 
 options                 : options STRING { $$ = addArg($1, $2);}
@@ -81,7 +93,7 @@ options                 : options STRING { $$ = addArg($1, $2);}
                         | options EXIT_KEYWORD { $$ = addArg($1, strdup("exit")); }
                         | options STATUS_KEYWORD { $$ = addArg($1, strdup("status")); }
                         | options CD_KEYWORD { $$ = addArg($1, strdup("cd")); }
-                        | /* empty */ { $$ = createArgs(); }
+                        | /* empty */ { $$ = createArgs(); lastArgs = $$; }
 
 builtin                 : EXIT_KEYWORD { $$ = BIC_EXIT; }
                         | STATUS_KEYWORD { $$ = BIC_STATUS; }
@@ -89,6 +101,24 @@ builtin                 : EXIT_KEYWORD { $$ = BIC_EXIT; }
                         ;
 
 %%
+
+void freeError() {
+    if (lastChain != NULL) {
+        freeChain(lastChain);
+    }
+    if (lastPipeline != NULL) {
+        freePipeline(lastPipeline);
+    }
+    if (lastRedirections != NULL) {
+        freeRedirections(lastRedirections);
+    }
+    if (lastCommand != NULL) {
+        freeCommand(lastCommand);
+    }
+    if (lastArgs != NULL) {
+        freeArgs(lastArgs);
+    }
+}
 
 /* All code after the second pair of %% is just plain C where you typically
  * write your main function and such. */
@@ -105,8 +135,8 @@ void finalizeParser() {
 
 void yyerror (char *msg) {
     printColor("\033[0;31m", "Error: invalid syntax!\n");
-    finalizeParser();
-    exit(EXIT_SUCCESS);  /* EXIT_SUCCESS because we use Themis */
+    // "finalizeParser"();
+    // exit(EXIT_SUCCESS);  /* EXIT_SUCCESS because we use Themis */
 }
 
 int main() {
