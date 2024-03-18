@@ -3,12 +3,20 @@
 
 #include "structs.h"
 
+extern Chain *lastChain;
+extern Pipeline *lastPipeline;
+extern Redirections *lastRedirections;
+extern Command *lastCommand;
+extern Args *lastArgs;
+
 // create an empty list of arguments
 Args *createArgs() {
     Args *args = malloc(sizeof(Args));
     args->args = malloc(sizeof(char *));
     args->args[0] = NULL; // Space for the command name
     args->numArgs = 1;
+    // remember the last arguments
+    lastArgs = args;
     return args;
 }
 
@@ -38,6 +46,9 @@ Command *createCommand(char *commandName, Args *commandArgs) {
     command->commandArgs->args = realloc(command->commandArgs->args, (command->commandArgs->numArgs + 1) * sizeof(char *));
     command->commandArgs->args[command->commandArgs->numArgs] = NULL;   // Null-terminate the array of arguments
     command->builtInCommand = BIC_NONE;
+    // remember the last command
+    lastCommand = command;
+    lastArgs = NULL;
     return command;
 }
 
@@ -53,6 +64,7 @@ Command *createBuiltInCommand(BuiltInCommand builtInCommand, Args *commandArgs) 
     commandArgs->args = realloc(commandArgs->args, commandArgs->numArgs * sizeof(char *));
     command->commandArgs = commandArgs;
     command->builtInCommand = builtInCommand;
+    lastArgs = NULL;
     return command;
 }
 
@@ -69,6 +81,9 @@ Pipeline *createPipeline(Command *command) {
     pipeline->commands = malloc(sizeof(Command *));
     pipeline->commands[0] = command;
     pipeline->numCommands = 1;
+    // remember the last pipeline
+    lastPipeline = pipeline;
+    lastCommand = NULL;
     return pipeline;
 }
 
@@ -77,6 +92,7 @@ Pipeline *addCommandToPipeline(Pipeline *pipeline, Command *command) {
     pipeline->commands = realloc(pipeline->commands, (pipeline->numCommands + 1) * sizeof(Command *));
     pipeline->commands[pipeline->numCommands] = command;
     pipeline->numCommands++;
+    lastCommand = NULL;
     return pipeline;
 }
 
@@ -94,6 +110,8 @@ Redirections *createRedirections(char *inputFile, char *outputFile) {
     Redirections *redirections = malloc(sizeof(Redirections));
     redirections->inputFile = inputFile;
     redirections->outputFile = outputFile;
+    // remember the last redirections
+    lastRedirections = redirections;
     return redirections;
 }
 
@@ -113,6 +131,8 @@ PipelineRedirections *createPipelineRedirections(Pipeline *pipeline, Redirection
     PipelineRedirections *pipelineRedirections = malloc(sizeof(PipelineRedirections));
     pipelineRedirections->pipeline = pipeline;
     pipelineRedirections->redirections = redirections;
+    lastPipeline = NULL;
+    lastRedirections = NULL;
     return pipelineRedirections;
 }
 
@@ -128,6 +148,8 @@ Chain *createChain(PipelineRedirections *pipelineRedirections, Command *BuiltInC
     Chain *chain = malloc(sizeof(Chain));
     chain->pipelineRedirections = pipelineRedirections;
     chain->BuiltInCommand = BuiltInCommand;
+    // remember the last chain
+    lastChain = chain;
     return chain;
 }
 

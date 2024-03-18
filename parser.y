@@ -12,6 +12,7 @@
     extern void finalizeLexer();
     extern void printColor(char *color, char *msg);
     extern void printPrompt();
+    extern void freeError();
 
     Chain *lastChain = NULL;
     Pipeline *lastPipeline = NULL;
@@ -63,29 +64,27 @@ inputline               : chain AND_STATEMENT { futureOperator = AO_AND_STATEMEN
                         | chain AND_OP { futureOperator = AO_AND_OPERATOR; runChain($1); activeOperator = AO_AND_OPERATOR; lastChain = NULL; } inputline
                         | chain OR_OP { futureOperator = AO_OR_OPERATOR; runChain($1); activeOperator = AO_OR_OPERATOR; lastChain = NULL; } inputline
                         | chain SEMICOLON { futureOperator = AO_SEMICOLON; runChain($1); activeOperator = AO_SEMICOLON; lastChain = NULL; } inputline  // allow use of semicolon as a command separator
-                        // | chain NEWLINE { futureOperator = AO_NEWLINE; runChain($1); activeOperator = AO_NEWLINE; } inputline      // allow use of newline as a command separator
                         | chain { futureOperator = AO_NONE; runChain($1); activeOperator = AO_NONE; lastChain = NULL; }
                         | SEMICOLON { futureOperator = AO_SEMICOLON; activeOperator = AO_SEMICOLON; } inputline    // inappropriate semicolon usage is not considered an error
-                        // | NEWLINE { futureOperator = AO_NEWLINE; activeOperator = AO_NEWLINE; } inputline        // inappropriate newline usage is not considered an error
                         | /* empty */ { futureOperator = AO_NONE; activeOperator = AO_NONE; }
                         ;
 
-chain                   : pipeline redirections { $$ = createChain(createPipelineRedirections($1, $2), NULL); lastPipeline = NULL; lastRedirections = NULL; lastChain = $$; }
-                        | builtin options { $$ = createChain(NULL, createBuiltInCommand($1, $2)); lastArgs = NULL; lastChain = $$; }
+chain                   : pipeline redirections { $$ = createChain(createPipelineRedirections($1, $2), NULL); }
+                        | builtin options { $$ = createChain(NULL, createBuiltInCommand($1, $2)); }
                         ;
 
-redirections            : INPUT_REDIRECT WORD OUTPUT_REDIRECT WORD { $$ = createRedirections($2, $4); lastRedirections = $$; }
-                        | OUTPUT_REDIRECT WORD INPUT_REDIRECT WORD { $$ = createRedirections($4, $2); lastRedirections = $$; }
-                        | OUTPUT_REDIRECT WORD { $$ = createRedirections(NULL, $2); lastRedirections = $$;}
-                        | INPUT_REDIRECT WORD { $$ = createRedirections($2, NULL); lastRedirections = $$;}
-                        | /* empty */ { $$ = createRedirections(NULL, NULL); lastRedirections = $$;}
+redirections            : INPUT_REDIRECT WORD OUTPUT_REDIRECT WORD { $$ = createRedirections($2, $4); }
+                        | OUTPUT_REDIRECT WORD INPUT_REDIRECT WORD { $$ = createRedirections($4, $2); }
+                        | OUTPUT_REDIRECT WORD { $$ = createRedirections(NULL, $2); }
+                        | INPUT_REDIRECT WORD { $$ = createRedirections($2, NULL); }
+                        | /* empty */ { $$ = createRedirections(NULL, NULL); }
                         ;
 
-pipeline                : pipeline OR_STATEMENT command { $$ = addCommandToPipeline($1, $3); lastCommand = NULL; }
-                        | command { $$ = createPipeline($1); lastCommand = NULL; lastPipeline = $$; }
+pipeline                : pipeline OR_STATEMENT command { $$ = addCommandToPipeline($1, $3); }
+                        | command { $$ = createPipeline($1); }
                         ;
 
-command                 : WORD options { $$ = createCommand($1, $2); lastArgs = NULL; lastCommand = $$; }
+command                 : WORD options { $$ = createCommand($1, $2); }
                         ;
 
 options                 : options STRING { $$ = addArg($1, $2);}
@@ -101,24 +100,6 @@ builtin                 : EXIT_KEYWORD { $$ = BIC_EXIT; }
                         ;
 
 %%
-
-void freeError() {
-    if (lastChain != NULL) {
-        freeChain(lastChain);
-    }
-    if (lastPipeline != NULL) {
-        freePipeline(lastPipeline);
-    }
-    if (lastRedirections != NULL) {
-        freeRedirections(lastRedirections);
-    }
-    if (lastCommand != NULL) {
-        freeCommand(lastCommand);
-    }
-    if (lastArgs != NULL) {
-        freeArgs(lastArgs);
-    }
-}
 
 /* All code after the second pair of %% is just plain C where you typically
  * write your main function and such. */
