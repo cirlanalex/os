@@ -48,6 +48,7 @@ Command *createCommand(char *commandName, Args *commandArgs) {
     command->builtInCommand = BIC_NONE;
     // remember the last command
     lastCommand = command;
+    // forget the unnecessary data
     lastArgs = NULL;
     return command;
 }
@@ -64,6 +65,7 @@ Command *createBuiltInCommand(BuiltInCommand builtInCommand, Args *commandArgs) 
     commandArgs->args = realloc(commandArgs->args, commandArgs->numArgs * sizeof(char *));
     command->commandArgs = commandArgs;
     command->builtInCommand = builtInCommand;
+    // forget the unnecessary data
     lastArgs = NULL;
     return command;
 }
@@ -83,6 +85,7 @@ Pipeline *createPipeline(Command *command) {
     pipeline->numCommands = 1;
     // remember the last pipeline
     lastPipeline = pipeline;
+    // forget the unnecessary data
     lastCommand = NULL;
     return pipeline;
 }
@@ -92,6 +95,7 @@ Pipeline *addCommandToPipeline(Pipeline *pipeline, Command *command) {
     pipeline->commands = realloc(pipeline->commands, (pipeline->numCommands + 1) * sizeof(Command *));
     pipeline->commands[pipeline->numCommands] = command;
     pipeline->numCommands++;
+    // forget the unnecessary data
     lastCommand = NULL;
     return pipeline;
 }
@@ -131,6 +135,7 @@ PipelineRedirections *createPipelineRedirections(Pipeline *pipeline, Redirection
     PipelineRedirections *pipelineRedirections = malloc(sizeof(PipelineRedirections));
     pipelineRedirections->pipeline = pipeline;
     pipelineRedirections->redirections = redirections;
+    // forget the unnecessary data
     lastPipeline = NULL;
     lastRedirections = NULL;
     return pipelineRedirections;

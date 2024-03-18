@@ -14,13 +14,13 @@
     extern void printPrompt();
     extern void freeError();
 
+    // variables to remember the allocated memory to free in case of an error
     Chain *lastChain = NULL;
     Pipeline *lastPipeline = NULL;
     Redirections *lastRedirections = NULL;
     Command *lastCommand = NULL;
     Args *lastArgs = NULL;
     void freeError();
-
 
     // remember the previous operator to be used
     ActiveOperator activeOperator = AO_NONE;

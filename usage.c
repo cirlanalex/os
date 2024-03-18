@@ -112,6 +112,7 @@ int runCommand(Command *command, int pipeIn[2], int pipeOut[2], int hasInput, in
                 // send the output to the file
                 dup2(output, STDOUT_FILENO);
                 // close the file
+                
                 close(output);
             }
         }
@@ -154,7 +155,6 @@ void runChain(Chain *chain) {
         return;
     }
     // run the pipeline if it exists
-
     char *inputFile = chain->pipelineRedirections->redirections->inputFile;
     char *outputFile = chain->pipelineRedirections->redirections->outputFile;
 
@@ -235,6 +235,14 @@ void runChain(Chain *chain) {
 
         ids[i] = runCommand(command, pipeIn, pipeOut, hasInput, hasOutput, input, output);
 
+        if (i == 0 && inputFile != NULL) {
+            close(input);
+        }
+
+        if (i == numCommands - 1 && outputFile != NULL) {
+            close(output);
+        }
+        
         if (i > 0) {
             close(pipeFiles[i-1][0]);
             close(pipeFiles[i-1][1]);
