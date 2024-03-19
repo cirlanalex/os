@@ -36,7 +36,7 @@ void printColor(char *color, char *msg) {
 }
 
 void printPrompt() {
-    #if 
+    #if EXT_PROMPT
     // do not print the prompt if the input is from a script
     if (!scriptInput) {
         fprintf(stdout, "%s> ", currentPath);
