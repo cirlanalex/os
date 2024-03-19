@@ -162,6 +162,44 @@ void runChain(Chain *chain) {
     char **outputFiles = chain->pipelineRedirections->redirections->outputFiles->files;
     char **errorFiles = chain->pipelineRedirections->redirections->errorFiles->files;
 
+    int numInputFiles = chain->pipelineRedirections->redirections->inputFiles->numFiles;
+    int numOutputFiles = chain->pipelineRedirections->redirections->outputFiles->numFiles;
+    int numErrorFiles = chain->pipelineRedirections->redirections->errorFiles->numFiles;
+
+    #if EXT_PROMPT
+    // check if any of the input, output, or error files are the same
+    for (int i = 0; i < numInputFiles; i++) {
+        for (int j = 0; j < numOutputFiles; j++) {
+            if (inputFiles[i] != NULL && outputFiles[j] != NULL && strcmp(inputFiles[i], outputFiles[j]) == 0) {
+                printColor("\033[0;31m", "Error: input and output files cannot be equal!\n");
+                printPrompt();
+                freeChain(chain);
+                *status = 2;
+                return;
+            }
+        }
+        for (int j = 0; j < numErrorFiles; j++) {
+            if (inputFiles[i] != NULL && errorFiles[j] != NULL && strcmp(inputFiles[i], errorFiles[j]) == 0) {
+                printColor("\033[0;31m", "Error: input and error files cannot be equal!\n");
+                printPrompt();
+                freeChain(chain);
+                *status = 2;
+                return;
+            }
+        }
+    }
+    for (int i = 0; i < numOutputFiles; i++) {
+        for (int j = 0; j < numErrorFiles; j++) {
+            if (outputFiles[i] != NULL && errorFiles[j] != NULL && strcmp(outputFiles[i], errorFiles[j]) == 0) {
+                printColor("\033[0;31m", "Error: output and error files cannot be equal!\n");
+                printPrompt();
+                freeChain(chain);
+                *status = 2;
+                return;
+            }
+        }
+    }
+    #else
     // check if input and output files are the same
     if (inputFiles[0] != NULL && outputFiles[0] != NULL && strcmp(inputFiles[0], outputFiles[0]) == 0) {
         printColor("\033[0;31m", "Error: input and output files cannot be equal!\n");
@@ -170,6 +208,7 @@ void runChain(Chain *chain) {
         *status = 2;
         return;
     }
+    #endif
 
     int error = -1;
 
@@ -232,7 +271,6 @@ void runChain(Chain *chain) {
                 }
                 input = pipeInput[0];
                 // copy all input into the pipe
-                int numInputFiles = chain->pipelineRedirections->redirections->inputFiles->numFiles;
                 for (int i = 0; i < numInputFiles; i++) {
                     // open the input file
                     int file = open(inputFiles[i], O_RDONLY);
@@ -313,7 +351,6 @@ void runChain(Chain *chain) {
     free(pipeFiles);
 
     // copy the output into all the given files
-    int numOutputFiles = chain->pipelineRedirections->redirections->outputFiles->numFiles;
     if (outputFiles[0] != NULL) {
         for (int i = 1; i < numOutputFiles; i++) {
             // open the first output file
@@ -342,7 +379,6 @@ void runChain(Chain *chain) {
     }
 
     // copy the error into all the given files
-    int numErrorFiles = chain->pipelineRedirections->redirections->errorFiles->numFiles;
     if (errorFiles[0] != NULL) {
         for (int i = 1; i < numErrorFiles; i++) {
             // open the first error file
