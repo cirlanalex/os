@@ -1,8 +1,12 @@
 %{
     #include <stdio.h>
     #include <stdlib.h>
-    #include <string.h>
     #include <unistd.h>
+    #include <string.h>
+    #include <fcntl.h>
+    #if EXT_PROMPT
+    #include "stack.h"
+    #endif
     #include "structs.h"
     #include "usage.h"
 
@@ -13,7 +17,12 @@
     extern void printColor(char *color, char *msg);
     extern void printPrompt();
     extern void freeError();
-    void skipLine();
+
+    #if EXT_PROMPT
+    // stack to remember the previous directories
+    Stack *directoryStack;
+    int scriptInput = 0;
+    #endif
 
     // variables to remember the allocated memory to free in case of an error
     Chain *lastChain = NULL;
@@ -33,7 +42,7 @@
     char *currentPath = NULL;
 %}
 
-%token EXIT_KEYWORD AND_OP OR_OP SEMICOLON NEWLINE AND_STATEMENT OR_STATEMENT INPUT_REDIRECT OUTPUT_REDIRECT ERROR_REDIRECT STATUS_KEYWORD CD_KEYWORD
+%token EXIT_KEYWORD AND_OP OR_OP SEMICOLON NEWLINE AND_STATEMENT OR_STATEMENT INPUT_REDIRECT OUTPUT_REDIRECT ERROR_REDIRECT STATUS_KEYWORD CD_KEYWORD PUSHD_KEYWORD POPD_KEYWORD
 
 %token <stringValue> STRING
 %token <stringValue> WORD
@@ -104,11 +113,15 @@ options                 : options STRING { $$ = addArg($1, $2);}
                         | options EXIT_KEYWORD { $$ = addArg($1, strdup("exit")); }
                         | options STATUS_KEYWORD { $$ = addArg($1, strdup("status")); }
                         | options CD_KEYWORD { $$ = addArg($1, strdup("cd")); }
+                        | options PUSHD_KEYWORD { $$ = addArg($1, strdup("pushd")); }
+                        | options POPD_KEYWORD { $$ = addArg($1, strdup("popd")); }
                         | /* empty */ { $$ = createArgs(); lastArgs = $$; }
 
 builtin                 : EXIT_KEYWORD { $$ = BIC_EXIT; }
                         | STATUS_KEYWORD { $$ = BIC_STATUS; }
                         | CD_KEYWORD { $$ = BIC_CD; }
+                        | PUSHD_KEYWORD { $$ = BIC_PUSHD; }
+                        | POPD_KEYWORD { $$ = BIC_POPD; }
                         ;
 
 %%
@@ -123,6 +136,11 @@ void finalizeParser() {
     if (currentPath != NULL) {
         free(currentPath);
     }
+    #if EXT_PROMPT
+    if (directoryStack != NULL) {
+        freeStack(directoryStack);
+    }
+    #endif
     finalizeLexer();
 }
 
@@ -132,23 +150,24 @@ void yyerror (char *msg) {
     // exit(EXIT_SUCCESS);  /* EXIT_SUCCESS because we use Themis */
 }
 
-void skipLine() {
-    printColor("\033[0;31m", "Error: invalid syntax!\n");
-    freeError();
-    int token = yylex();
-    while (token != NEWLINE && token != 0) {
-        if (token == WORD || token == STRING) {
-            free(yylval.stringValue);
-        }
-        token = yylex();
-    }
-}
-
-int main() {
-    setbuf(stdin, NULL);
-    setbuf(stdout, NULL);
+int main(int argc, char **argv) {
     // Initialize program
     initLexer();
+
+    #if EXT_PROMPT
+    if (argc > 1) {
+        scriptInput = 1;
+        // open the script file
+        int scriptFile = open(argv[1], O_RDONLY);
+        if (scriptFile == -1) {
+            printColor("\033[0;31m", "Error: cannot open the script file!\n");
+            exit(EXIT_SUCCESS); /* EXIT_SUCCESS because we use Themis */
+        }
+        // redirect the input to the script file
+        dup2(scriptFile, STDIN_FILENO);
+        close(scriptFile);
+    }
+    #endif
 
     // Get current path
     currentPath = malloc(1024 * sizeof(char));
@@ -156,6 +175,11 @@ int main() {
     getcwd(currentPath, 1024 * sizeof(char));
 
     printPrompt();
+
+    #if EXT_PROMPT
+    // initialize the stack
+    directoryStack = createStack();
+    #endif
 
     // Start parsing process
     yyparse();

@@ -96,6 +96,24 @@ void finalizeLexer();
                         return CD_KEYWORD;
                     }
 
+"pushd"             {
+                        #if EXT_PROMPT
+                        return PUSHD_KEYWORD;
+                        #else
+                        yylval.stringValue = strdup(yytext);
+                        return WORD;
+                        #endif
+                    }
+
+"popd"              {
+                        #if EXT_PROMPT
+                        return POPD_KEYWORD;
+                        #else
+                        yylval.stringValue = strdup(yytext);
+                        return WORD;
+                        #endif
+                    }
+
     /* Other grammar parts */
 "\""                BEGIN(string); /* We start reading a string until the next " char */
 "&&"                {

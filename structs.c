@@ -9,8 +9,6 @@ extern Redirections *lastRedirections;
 extern Command *lastCommand;
 extern Args *lastArgs;
 
-extern void skipLine();
-
 // create an empty list of arguments
 Args *createArgs() {
     Args *args = malloc(sizeof(Args));

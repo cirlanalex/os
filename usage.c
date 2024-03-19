@@ -6,6 +6,9 @@
 #include <string.h>
 #include <fcntl.h>
 #include "usage.h"
+#if EXT_PROMPT
+#include "stack.h"
+#endif
 
 extern int *status;
 extern char *currentPath;
@@ -19,6 +22,11 @@ extern Redirections *lastRedirections;
 extern Command *lastCommand;
 extern Args *lastArgs;
 
+#if EXT_PROMPT
+extern Stack *directoryStack;
+extern int scriptInput;
+#endif
+
 void printColor(char *color, char *msg) {
     #if EXT_PROMPT
     fprintf(stdout, "%s%s\x1b[0m", color, msg);
@@ -28,8 +36,11 @@ void printColor(char *color, char *msg) {
 }
 
 void printPrompt() {
-    #if EXT_PROMPT
-    fprintf(stdout, "%s> ", currentPath);
+    #if 
+    // do not print the prompt if the input is from a script
+    if (!scriptInput) {
+        fprintf(stdout, "%s> ", currentPath);
+    }
     #endif
 }
 
@@ -66,6 +77,41 @@ void runBuiltInCommand(Chain *chain) {
                 *status = 2;
             }
             break;
+        #if EXT_PROMPT
+        case BIC_PUSHD:
+            if (command->commandArgs->numArgs > 0) {
+                if (chdir(command->commandArgs->args[0]) != 0) {
+                    printColor("\033[0;31m", "Error: pushd directory not found!\n");
+                    *status = 2;
+                } else {
+                    char *pathToPush = malloc(1024 * sizeof(char));
+                    strcpy(pathToPush, currentPath);
+                    pushStack(directoryStack, (void *) pathToPush);
+                    getcwd(currentPath, 1024 * sizeof(char));
+                    *status = 0;
+                }
+            } else {
+                printColor("\033[0;31m", "Error: pushd requires folder to navigate to!\n");
+                *status = 2;
+            }
+            break;
+        case BIC_POPD:
+            if (isEmptyStack(directoryStack)) {
+                printColor("\033[0;31m", "Error: popd directory stack is empty!\n");
+                *status = 2;
+            } else {
+                char *path = (char *) popStack(directoryStack);
+                if (chdir(path) != 0) {
+                    printColor("\033[0;31m", "Error: popd directory not found!\n");
+                    *status = 2;
+                } else {
+                    getcwd(currentPath, 1024 * sizeof(char));
+                    *status = 0;
+                }
+                free(path);
+            }
+            break;
+        #endif
     }
 }
 
