@@ -116,7 +116,6 @@ int runCommand(Command *command, int pipeIn[2], int pipeOut[2], int hasInput, in
                 // send the output to the file
                 dup2(output, STDOUT_FILENO);
                 // close the file
-                
                 close(output);
             }
         }
@@ -159,28 +158,28 @@ void runChain(Chain *chain) {
         return;
     }
     // run the pipeline if it exists
-    char *inputFile = chain->pipelineRedirections->redirections->inputFiles->files[0];
-    char *outputFile = chain->pipelineRedirections->redirections->outputFiles->files[0];
-    char *errorFile = chain->pipelineRedirections->redirections->errorFiles->files[0];
-
-    int error = -1;
-
-    if (errorFile != NULL) {
-        error = open(errorFile, O_WRONLY | O_CREAT | O_TRUNC);
-        if (error < 0) {
-            printColor("\033[0;31m", "Error: error file could not be created!\n");
-            freeChain(chain);
-            exit(EXIT_SUCCESS); /* EXIT_SUCCESS because we use Themis */
-        }
-    }
+    char **inputFiles = chain->pipelineRedirections->redirections->inputFiles->files;
+    char **outputFiles = chain->pipelineRedirections->redirections->outputFiles->files;
+    char **errorFiles = chain->pipelineRedirections->redirections->errorFiles->files;
 
     // check if input and output files are the same
-    if (inputFile != NULL && outputFile != NULL && strcmp(inputFile, outputFile) == 0) {
+    if (inputFiles[0] != NULL && outputFiles[0] != NULL && strcmp(inputFiles[0], outputFiles[0]) == 0) {
         printColor("\033[0;31m", "Error: input and output files cannot be equal!\n");
         printPrompt();
         freeChain(chain);
         *status = 2;
         return;
+    }
+
+    int error = -1;
+
+    if (errorFiles[0] != NULL) {
+        error = open(errorFiles[0], O_WRONLY | O_CREAT | O_TRUNC);
+        if (error < 0) {
+            printColor("\033[0;31m", "Error: error file could not be created!\n");
+            freeChain(chain);
+            exit(EXIT_SUCCESS); /* EXIT_SUCCESS because we use Themis */
+        }
     }
 
     int numCommands = chain->pipelineRedirections->pipeline->numCommands;
@@ -223,13 +222,43 @@ void runChain(Chain *chain) {
 
         // for the first command
         if (i == 0) {
-            if (inputFile != NULL) {
-                input = open(inputFile, O_RDONLY);
+            if (inputFiles[0] != NULL) {
+                #if EXT_PROMPT
+                int pipeInput[2];
+                if (pipe(pipeInput) < 0) {
+                    printColor("\033[0;31m", "Error: pipe() could not be created!\n");
+                    freeChain(chain);
+                    exit(EXIT_SUCCESS); /* EXIT_SUCCESS because we use Themis */
+                }
+                input = pipeInput[0];
+                // copy all input into the pipe
+                int numInputFiles = chain->pipelineRedirections->redirections->inputFiles->numFiles;
+                for (int i = 0; i < numInputFiles; i++) {
+                    // open the input file
+                    int file = open(inputFiles[i], O_RDONLY);
+                    if (file < 0) {
+                        printColor("\033[0;31m", "Error: input file not found!\n");
+                        freeChain(chain);
+                        exit(EXIT_SUCCESS); /* EXIT_SUCCESS because we use Themis */
+                    }
+                    // copy the input into the pipe
+                    char buffer[4096];
+                    ssize_t len;
+                    while ((len = read(file, buffer, 4096)) > 0) {
+                        write(pipeInput[1], buffer, len);
+                    }
+                    write(pipeInput[1], "\n", 1);
+                    close(file);
+                }
+                close(pipeInput[1]);
+                #else
+                input = open(inputFiles[0], O_RDONLY);
                 if (input < 0) {
                     printColor("\033[0;31m", "Error: input file not found!\n");
                     freeChain(chain);
                     exit(EXIT_SUCCESS); /* EXIT_SUCCESS because we use Themis */
                 }
+                #endif
             } else {
                 input = STDIN_FILENO;
             }
@@ -237,8 +266,8 @@ void runChain(Chain *chain) {
 
         // for the last command
         if (i == numCommands - 1) {
-            if (outputFile != NULL) {
-                output = open(outputFile, O_WRONLY | O_CREAT | O_TRUNC);
+            if (outputFiles[0] != NULL) {
+                output = open(outputFiles[0], O_WRONLY | O_CREAT | O_TRUNC);
                 if (output < 0) {
                     printColor("\033[0;31m", "Error: output file could not be created!\n");
                     freeChain(chain);
@@ -249,22 +278,13 @@ void runChain(Chain *chain) {
             }
         }
 
-        if (errorFile != NULL) {
-            int error = open(errorFile, O_WRONLY | O_CREAT | O_TRUNC);
-            if (error < 0) {
-                printColor("\033[0;31m", "Error: error file could not be created!\n");
-                freeChain(chain);
-                exit(EXIT_SUCCESS); /* EXIT_SUCCESS because we use Themis */
-            }
-        }
-
         ids[i] = runCommand(command, pipeIn, pipeOut, hasInput, hasOutput, input, output, error);
 
-        if (i == 0 && inputFile != NULL) {
+        if (i == 0 && inputFiles[0] != NULL) {
             close(input);
         }
 
-        if (i == numCommands - 1 && outputFile != NULL) {
+        if (i == numCommands - 1 && outputFiles[0] != NULL) {
             close(output);
         }
         
@@ -274,7 +294,7 @@ void runChain(Chain *chain) {
         }
     }
 
-    if (errorFile != NULL) {
+    if (errorFiles[0] != NULL) {
         close(error);
     }
 
@@ -291,6 +311,64 @@ void runChain(Chain *chain) {
 
     free(ids);
     free(pipeFiles);
+
+    // copy the output into all the given files
+    int numOutputFiles = chain->pipelineRedirections->redirections->outputFiles->numFiles;
+    if (outputFiles[0] != NULL) {
+        for (int i = 1; i < numOutputFiles; i++) {
+            // open the first output file
+            int output = open(outputFiles[0], O_RDONLY);
+            if (output < 0) {
+                printColor("\033[0;31m", "Error: output file could not be read!\n");
+                freeChain(chain);
+                exit(EXIT_SUCCESS); /* EXIT_SUCCESS because we use Themis */
+            }
+            // open the copy of the output file
+            int copy = open(outputFiles[i], O_WRONLY | O_CREAT | O_TRUNC);
+            if (copy < 0) {
+                printColor("\033[0;31m", "Error: output file could not be created!\n");
+                freeChain(chain);
+                exit(EXIT_SUCCESS); /* EXIT_SUCCESS because we use Themis */
+            }
+            // copy the output into the file
+            char buffer[4096];
+            ssize_t len;
+            while ((len = read(output, buffer, 4096)) > 0) {
+                write(copy, buffer, len);
+            }
+            close(copy);
+            close(output);
+        }
+    }
+
+    // copy the error into all the given files
+    int numErrorFiles = chain->pipelineRedirections->redirections->errorFiles->numFiles;
+    if (errorFiles[0] != NULL) {
+        for (int i = 1; i < numErrorFiles; i++) {
+            // open the first error file
+            int error = open(errorFiles[0], O_RDONLY);
+            if (error < 0) {
+                printColor("\033[0;31m", "Error: error file could not be read!\n");
+                freeChain(chain);
+                exit(EXIT_SUCCESS); /* EXIT_SUCCESS because we use Themis */
+            }
+            // open the copy of the error file
+            int copy = open(errorFiles[i], O_WRONLY | O_CREAT | O_TRUNC);
+            if (copy < 0) {
+                printColor("\033[0;31m", "Error: error file could not be created!\n");
+                freeChain(chain);
+                exit(EXIT_SUCCESS); /* EXIT_SUCCESS because we use Themis */
+            }
+            // copy the error into the file
+            char buffer[4096];
+            ssize_t len;
+            while ((len = read(error, buffer, 4096)) > 0) {
+                write(copy, buffer, len);
+            }
+            close(copy);
+            close(error);
+        }
+    }
 
     printPrompt();
     freeChain(chain);
