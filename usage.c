@@ -29,9 +29,7 @@ void printColor(char *color, char *msg) {
 
 void printPrompt() {
     #if EXT_PROMPT
-    if (futureOperator == AO_NEWLINE) {
-        fprintf(stdout, "%s> ", currentPath);
-    }
+    fprintf(stdout, "%s> ", currentPath);
     #endif
 }
 
@@ -72,7 +70,7 @@ void runBuiltInCommand(Chain *chain) {
 }
 
 // handle running commands
-int runCommand(Command *command, int pipeIn[2], int pipeOut[2], int hasInput, int hasOutput, int input, int output) {
+int runCommand(Command *command, int pipeIn[2], int pipeOut[2], int hasInput, int hasOutput, int input, int output, int error) {
     pid_t pid = fork();
 
     if (pid < 0) {
@@ -81,6 +79,12 @@ int runCommand(Command *command, int pipeIn[2], int pipeOut[2], int hasInput, in
         exit(EXIT_SUCCESS); /* EXIT_SUCCESS because we use Themis */
     } else if (pid == 0) {
         // child code
+        if (error != -1) {
+            // send the error to the file
+            dup2(error, STDERR_FILENO);
+            // close the file
+            close(error);
+        }
         if (hasInput) {
             // close the write end of the previous pipe
             close(pipeIn[1]);
@@ -155,8 +159,20 @@ void runChain(Chain *chain) {
         return;
     }
     // run the pipeline if it exists
-    char *inputFile = chain->pipelineRedirections->redirections->inputFile;
-    char *outputFile = chain->pipelineRedirections->redirections->outputFile;
+    char *inputFile = chain->pipelineRedirections->redirections->inputFiles->files[0];
+    char *outputFile = chain->pipelineRedirections->redirections->outputFiles->files[0];
+    char *errorFile = chain->pipelineRedirections->redirections->errorFiles->files[0];
+
+    int error = -1;
+
+    if (errorFile != NULL) {
+        error = open(errorFile, O_WRONLY | O_CREAT | O_TRUNC);
+        if (error < 0) {
+            printColor("\033[0;31m", "Error: error file could not be created!\n");
+            freeChain(chain);
+            exit(EXIT_SUCCESS); /* EXIT_SUCCESS because we use Themis */
+        }
+    }
 
     // check if input and output files are the same
     if (inputFile != NULL && outputFile != NULL && strcmp(inputFile, outputFile) == 0) {
@@ -169,7 +185,7 @@ void runChain(Chain *chain) {
 
     int numCommands = chain->pipelineRedirections->pipeline->numCommands;
     int **pipeFiles = malloc((numCommands - 1) * sizeof(int *));
-    
+
     for (int i = 0; i < numCommands - 1; i++) {
         pipeFiles[i] = malloc(2 * sizeof(int));
         // create the pipes
@@ -233,7 +249,16 @@ void runChain(Chain *chain) {
             }
         }
 
-        ids[i] = runCommand(command, pipeIn, pipeOut, hasInput, hasOutput, input, output);
+        if (errorFile != NULL) {
+            int error = open(errorFile, O_WRONLY | O_CREAT | O_TRUNC);
+            if (error < 0) {
+                printColor("\033[0;31m", "Error: error file could not be created!\n");
+                freeChain(chain);
+                exit(EXIT_SUCCESS); /* EXIT_SUCCESS because we use Themis */
+            }
+        }
+
+        ids[i] = runCommand(command, pipeIn, pipeOut, hasInput, hasOutput, input, output, error);
 
         if (i == 0 && inputFile != NULL) {
             close(input);
@@ -247,6 +272,10 @@ void runChain(Chain *chain) {
             close(pipeFiles[i-1][0]);
             close(pipeFiles[i-1][1]);
         }
+    }
+
+    if (errorFile != NULL) {
+        close(error);
     }
 
     for (int i = 0; i < numCommands; i++) {

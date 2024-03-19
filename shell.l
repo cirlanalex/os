@@ -66,14 +66,8 @@ void finalizeLexer();
                         /* Here we match any entire string. We should either make this
                          * the command to execute, or store this as an option, or it is
                          * a filename, depending on the current state! */
-
-                        // Entire string value is available in yytext with length yyleng
-                        // Make sure to copy it!
-                        // printf("STRING: %s\n", yytext);
                         yylval.stringValue = strdup(yytext);
                         return STRING;
-
-                        //////////// Put your code here!
                     }
 
     /* Here we have cases for error handling - when we have encountered an invalid syntax,
@@ -91,63 +85,57 @@ void finalizeLexer();
                          * here if you are sure that it is safe and valid to do so, otherwise
                          * use REJECT to let flex continue to the next match (as a string,
                          * later on). */
-
-                        //////////// Put your code here!
                         return EXIT_KEYWORD;
-                        // REJECT;
                     }
 
 "status"            {
-                        //////////// Put your code here!
                         return STATUS_KEYWORD;
-                        // REJECT;
                     }
 
 "cd"                {
-                        //////////// Put your code here!
                         return CD_KEYWORD;
-                        // REJECT;
                     }
 
     /* Other grammar parts */
 "\""                BEGIN(string); /* We start reading a string until the next " char */
 "&&"                {
-                        // printf("Performing &&\n");
                         return AND_OP;
                     }
 
 "&"                 {
-                        // printf("Performing &\n");
                         return AND_STATEMENT;
                     }
 
 "||"                {
-                        // printf("Performing ||\n");
                         return OR_OP;
                     }
 
 "|"                 {
-                        // printf("Performing |\n");
                         return OR_STATEMENT;
                     }
 
 ;                   { 
-                        // printf("Performing ;\n");
                         return SEMICOLON;
                     }
 
 "<"                 {
-                        // printf("Performing <\n");
                         return INPUT_REDIRECT;
                     }
 
 ">"                 {
-                        // printf("Performing >\n");
                         return OUTPUT_REDIRECT;
                     }
 
+"n>"                {
+                        #if EXT_PROMPT
+                        return ERROR_REDIRECT;
+                        #else
+                        yylval.stringValue = strdup(yytext);
+                        return WORD;
+                        #endif
+                    }
+
 \n                  {
-                        // printf("Performing \\n\n");
                         return NEWLINE;
                     }
 [ \t]+              /* Ignore whitespace */
@@ -156,14 +144,8 @@ void finalizeLexer();
                          * "word" or so. We should either make this the command to execute,
                          * or store this as an option, or it is a filename, depending on the
                          * current state! */
-
-                        // Entire string value is available in yytext with length yyleng
-                        // Make sure to copy it!
-                        // printf("WORD: %s\n", yytext);
                         yylval.stringValue = strdup(yytext);
                         return WORD;
-
-                        //////////// Put your code here!
                     }
 <<EOF>>             {
                         /* At EOF we should unconditionally terminate! */

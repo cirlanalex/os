@@ -38,10 +38,24 @@ typedef enum ActiveOperator {
     AO_NEWLINE
 } ActiveOperator;
 
+// types of redirections
+typedef enum RedirectionType {
+    R_INPUT,
+    R_OUTPUT,
+    R_ERROR
+} RedirectionType;
+
+// structure for file lists for redirections
+typedef struct FileList {
+    char **files;
+    int numFiles;
+} FileList;
+
 // structure for redirections
 typedef struct Redirections {
-    char *inputFile;
-    char *outputFile;
+    FileList *inputFiles;
+    FileList *outputFiles;
+    FileList *errorFiles;
 } Redirections;
 
 // structure for pipeline redirections
@@ -68,7 +82,12 @@ Pipeline *createPipeline(Command *command);
 Pipeline *addCommandToPipeline(Pipeline *pipeline, Command *command);
 void freePipeline(Pipeline *pipeline);
 
-Redirections *createRedirections(char *inputFile, char *outputFile);
+FileList *createFileList();
+FileList *addFile(FileList *fileList, char *file);
+void freeFileList(FileList *fileList);
+
+Redirections *createRedirections();
+Redirections *addRedirection(Redirections *redirections, char *file, RedirectionType type);
 void freeRedirections(Redirections *redirections);
 
 PipelineRedirections *createPipelineRedirections(Pipeline *pipeline, Redirections *redirections);

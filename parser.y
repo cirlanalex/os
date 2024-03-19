@@ -13,6 +13,7 @@
     extern void printColor(char *color, char *msg);
     extern void printPrompt();
     extern void freeError();
+    void skipLine();
 
     // variables to remember the allocated memory to free in case of an error
     Chain *lastChain = NULL;
@@ -32,7 +33,7 @@
     char *currentPath = NULL;
 %}
 
-%token EXIT_KEYWORD AND_OP OR_OP SEMICOLON NEWLINE AND_STATEMENT OR_STATEMENT INPUT_REDIRECT OUTPUT_REDIRECT STATUS_KEYWORD CD_KEYWORD
+%token EXIT_KEYWORD AND_OP OR_OP SEMICOLON NEWLINE AND_STATEMENT OR_STATEMENT INPUT_REDIRECT OUTPUT_REDIRECT ERROR_REDIRECT STATUS_KEYWORD CD_KEYWORD
 
 %token <stringValue> STRING
 %token <stringValue> WORD
@@ -42,6 +43,9 @@
 %type <executableCommand> command
 %type <pipeline> pipeline
 %type <redirections> redirections
+%type <stringValue> inputRedirect
+%type <stringValue> outputRedirect
+%type <stringValue> errorRedirect
 %type <chain> chain
 
 %union {
@@ -73,11 +77,19 @@ chain                   : pipeline redirections { $$ = createChain(createPipelin
                         | builtin options { $$ = createChain(NULL, createBuiltInCommand($1, $2)); }
                         ;
 
-redirections            : INPUT_REDIRECT WORD OUTPUT_REDIRECT WORD { $$ = createRedirections($2, $4); }
-                        | OUTPUT_REDIRECT WORD INPUT_REDIRECT WORD { $$ = createRedirections($4, $2); }
-                        | OUTPUT_REDIRECT WORD { $$ = createRedirections(NULL, $2); }
-                        | INPUT_REDIRECT WORD { $$ = createRedirections($2, NULL); }
-                        | /* empty */ { $$ = createRedirections(NULL, NULL); }
+redirections            : redirections inputRedirect { $$ = addRedirection($1, $2, R_INPUT); if ($$ == NULL) { goto yyerrlab; } }
+                        | redirections outputRedirect { $$ = addRedirection($1, $2, R_OUTPUT); if ($$ == NULL) { goto yyerrlab; } }
+                        | redirections errorRedirect { $$ = addRedirection($1, $2, R_ERROR); }
+                        | /* empty */ { $$ = createRedirections(); }
+                        ;
+
+inputRedirect           : INPUT_REDIRECT WORD { $$ = $2; }
+                        ;
+
+outputRedirect          : OUTPUT_REDIRECT WORD { $$ = $2; }
+                        ;
+
+errorRedirect           : ERROR_REDIRECT WORD { $$ = $2; }
                         ;
 
 pipeline                : pipeline OR_STATEMENT command { $$ = addCommandToPipeline($1, $3); }
@@ -118,6 +130,18 @@ void yyerror (char *msg) {
     printColor("\033[0;31m", "Error: invalid syntax!\n");
     // "finalizeParser"();
     // exit(EXIT_SUCCESS);  /* EXIT_SUCCESS because we use Themis */
+}
+
+void skipLine() {
+    printColor("\033[0;31m", "Error: invalid syntax!\n");
+    freeError();
+    int token = yylex();
+    while (token != NEWLINE && token != 0) {
+        if (token == WORD || token == STRING) {
+            free(yylval.stringValue);
+        }
+        token = yylex();
+    }
 }
 
 int main() {

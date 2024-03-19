@@ -9,6 +9,8 @@ extern Redirections *lastRedirections;
 extern Command *lastCommand;
 extern Args *lastArgs;
 
+extern void skipLine();
+
 // create an empty list of arguments
 Args *createArgs() {
     Args *args = malloc(sizeof(Args));
@@ -109,24 +111,74 @@ void freePipeline(Pipeline *pipeline) {
     free(pipeline);
 }
 
+// create a file list
+FileList *createFileList() {
+    FileList *fileList = malloc(sizeof(FileList));
+    fileList->files = malloc(sizeof(char *));
+    fileList->files[0] = NULL;
+    fileList->numFiles = 0;
+    return fileList;
+}
+
+// add a file to a file list
+FileList *addFile(FileList *fileList, char *file) {
+    fileList->files = realloc(fileList->files, (fileList->numFiles + 1) * sizeof(char *));
+    fileList->files[fileList->numFiles] = file;
+    fileList->numFiles++;
+    return fileList;
+}
+
+// free a file list
+void freeFileList(FileList *fileList) {
+    for (int i = 0; i < fileList->numFiles; i++) {
+        free(fileList->files[i]);
+    }
+    free(fileList->files);
+    free(fileList);
+}
+
 // create redirections
-Redirections *createRedirections(char *inputFile, char *outputFile) {
+Redirections *createRedirections() {
     Redirections *redirections = malloc(sizeof(Redirections));
-    redirections->inputFile = inputFile;
-    redirections->outputFile = outputFile;
+    redirections->inputFiles = createFileList();
+    redirections->outputFiles = createFileList();
+    redirections->errorFiles = createFileList();
     // remember the last redirections
     lastRedirections = redirections;
     return redirections;
 }
 
+// add an input file to redirections
+Redirections *addRedirection(Redirections *redirections, char *file, RedirectionType type) {
+    if (type == R_INPUT) {
+        #if EXT_PROMPT
+        #else
+        if (redirections->inputFiles->numFiles > 0) {
+            return NULL;
+        }
+        #endif
+        redirections->inputFiles = addFile(redirections->inputFiles, file);
+        return redirections;
+    } 
+    if (type == R_OUTPUT) {
+        #if EXT_PROMPT
+        #else
+        if (redirections->outputFiles->numFiles > 0) {
+            return NULL;
+        }
+        #endif
+        redirections->outputFiles = addFile(redirections->outputFiles, file);
+        return redirections;
+    }
+    redirections->errorFiles = addFile(redirections->errorFiles, file);
+    return redirections;
+}
+
 // free redirections
 void freeRedirections(Redirections *redirections) {
-    if (redirections->inputFile != NULL) {
-        free(redirections->inputFile);
-    }
-    if (redirections->outputFile != NULL) {
-        free(redirections->outputFile);
-    }
+    freeFileList(redirections->inputFiles);
+    freeFileList(redirections->outputFiles);
+    freeFileList(redirections->errorFiles);
     free(redirections);
 }
 
