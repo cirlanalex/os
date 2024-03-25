@@ -70,13 +70,25 @@ void removeBackgroundProcessByID(BackgroundList *list, int id) {
     }
 }
 
-// print the list
-void printBackgroundList(BackgroundList *list) {
+// get the PID of a process by its ID
+pid_t getBackgroundProcessPID(BackgroundList *list, int id) {
     BackgroundProcess *current = list->head;
     while (current != NULL) {
-        printf("Process running with index %d\n", current->id);
+        if (current->id == id) {
+            return current->pid;
+        }
         current = current->next;
     }
+    return -1;
+}
+
+// print the list in reverse order
+void printBackgroundList(BackgroundProcess *current) {
+    if (current == NULL) {
+        return;
+    }
+    printBackgroundList(current->next);
+    printf("Process running with index %d\n", current->id);
 }
 
 // check if the list is empty

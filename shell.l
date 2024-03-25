@@ -114,6 +114,14 @@ void finalizeLexer();
                         #endif
                     }
 
+"kill"              {
+                        return KILL_KEYWORD;
+                    }
+
+"jobs"              {
+                        return JOBS_KEYWORD;
+                    }
+
     /* Other grammar parts */
 "\""                BEGIN(string); /* We start reading a string until the next " char */
 "&&"                {

@@ -47,7 +47,7 @@
     char *currentPath = NULL;
 %}
 
-%token EXIT_KEYWORD AND_OP OR_OP SEMICOLON NEWLINE AND_STATEMENT OR_STATEMENT INPUT_REDIRECT OUTPUT_REDIRECT ERROR_REDIRECT STATUS_KEYWORD CD_KEYWORD PUSHD_KEYWORD POPD_KEYWORD
+%token EXIT_KEYWORD AND_OP OR_OP SEMICOLON NEWLINE AND_STATEMENT OR_STATEMENT INPUT_REDIRECT OUTPUT_REDIRECT ERROR_REDIRECT STATUS_KEYWORD CD_KEYWORD PUSHD_KEYWORD POPD_KEYWORD KILL_KEYWORD JOBS_KEYWORD
 
 %token <stringValue> STRING
 %token <stringValue> WORD
@@ -120,6 +120,8 @@ options                 : options STRING { $$ = addArg($1, $2);}
                         | options CD_KEYWORD { $$ = addArg($1, strdup("cd")); }
                         | options PUSHD_KEYWORD { $$ = addArg($1, strdup("pushd")); }
                         | options POPD_KEYWORD { $$ = addArg($1, strdup("popd")); }
+                        | options KILL_KEYWORD { $$ = addArg($1, strdup("kill")); }
+                        | options JOBS_KEYWORD { $$ = addArg($1, strdup("jobs")); }
                         | /* empty */ { $$ = createArgs(); lastArgs = $$; }
 
 builtin                 : EXIT_KEYWORD { $$ = BIC_EXIT; }
@@ -127,6 +129,8 @@ builtin                 : EXIT_KEYWORD { $$ = BIC_EXIT; }
                         | CD_KEYWORD { $$ = BIC_CD; }
                         | PUSHD_KEYWORD { $$ = BIC_PUSHD; }
                         | POPD_KEYWORD { $$ = BIC_POPD; }
+                        | KILL_KEYWORD { $$ = BIC_KILL; }
+                        | JOBS_KEYWORD { $$ = BIC_JOBS; }
                         ;
 
 %%

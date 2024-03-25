@@ -8,7 +8,9 @@ typedef enum BuiltInCommand {
     BIC_STATUS,
     BIC_CD,
     BIC_PUSHD,
-    BIC_POPD
+    BIC_POPD,
+    BIC_KILL,
+    BIC_JOBS
 } BuiltInCommand;
 
 // structure for command arguments

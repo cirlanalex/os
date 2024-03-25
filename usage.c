@@ -62,7 +62,7 @@ void sigChildHandler(int signo) {
     int status;
     while ((pid = waitpid(-1, &status, WNOHANG)) > 0) {
         removeBackgroundProcessByPID(backgroundList, pid);
-        printf("Process %d has finished with status %d\n", pid, WEXITSTATUS(status));
+        //printf("Process %d has finished with status %d\n", pid, WEXITSTATUS(status));
     }
 }
 
@@ -74,7 +74,6 @@ void sigIntHandler(int signo) {
         *status = 2;
         return;
     }
-    printBackgroundList(backgroundList);
     freeError();
     finalizeParser();
     exit(EXIT_SUCCESS); /* EXIT_SUCCESS because we use Themis */
@@ -155,6 +154,50 @@ void runBuiltInCommand(Chain *chain) {
             }
             break;
         #endif
+        case BIC_KILL:
+            if (command->commandArgs->numArgs > 0) {
+                char *endPtr = NULL;
+                int id = (int) strtol(command->commandArgs->args[0], &endPtr, 10);
+                if (endPtr == command->commandArgs->args[0] || *endPtr != '\0') {
+                    printColor("\033[0;31m", "Error: invalid index provided!\n");
+                    *status = 2;
+                    return;
+                }
+                int signal = SIGTERM;
+                if (command->commandArgs->numArgs > 1) {
+                    signal = (int) strtol(command->commandArgs->args[1], &endPtr, 10);
+                    if (endPtr == command->commandArgs->args[1] || *endPtr != '\0' || signal < 0 || signal > 31) {
+                        printColor("\033[0;31m", "Error: invalid signal provided!\n");
+                        *status = 2;
+                        return;
+                    }
+                }
+                pid_t pid = getBackgroundProcessPID(backgroundList, id);
+                if (pid == -1) {
+                    printColor("\033[0;31m", "Error: this index is not a background process!\n");
+                    *status = 2;
+                    return;
+                }
+                if (kill(pid, signal) < 0) {
+                    printColor("\033[0;31m", "Error: the process could not be killed!\n");
+                    freeChain(chain);
+                    exit(EXIT_SUCCESS); /* EXIT_SUCCESS because we use Themis */
+                }
+                *status = 0;
+            } else {
+                printColor("\033[0;31m", "Error: command requires an index!\n");
+                *status = 2;
+            }
+            break;
+        case BIC_JOBS:
+            if (isEmptyBackgroundList(backgroundList)) {
+                printColor("\033[0;31m", "No background processes!\n");
+                *status = 2;
+                return;
+            }
+            printBackgroundList(backgroundList->head);
+            *status = 0;
+            break;
     }
 }
 

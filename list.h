@@ -21,7 +21,8 @@ BackgroundList *createBackgroundList();
 void addBackgroundProcess(BackgroundList *list, pid_t pid);
 void removeBackgroundProcessByPID(BackgroundList *list, pid_t pid);
 void removeBackgroundProcessByID(BackgroundList *list, int id);
-void printBackgroundList(BackgroundList *list);
+pid_t getBackgroundProcessPID(BackgroundList *list, pid_t id);
+void printBackgroundList(BackgroundProcess *current);
 int isEmptyBackgroundList(BackgroundList *list);
 void freeBackgroundList(BackgroundList *list);
 
