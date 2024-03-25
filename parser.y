@@ -1,12 +1,15 @@
 %{
-    #include <stdio.h>
-    #include <stdlib.h>
-    #include <unistd.h>
-    #include <string.h>
-    #include <fcntl.h>
+#define _GNU_SOURCE
+#include <stdio.h>
+#include <stdlib.h>
+#include <unistd.h>
+#include <sys/wait.h>
+#include <string.h>
+#include <fcntl.h>
     #if EXT_PROMPT
     #include "stack.h"
     #endif
+    #include "list.h"
     #include "structs.h"
     #include "usage.h"
 
@@ -17,12 +20,14 @@
     extern void printColor(char *color, char *msg);
     extern void printPrompt();
     extern void freeError();
+    extern void sigIntHandler(int signo);
 
     #if EXT_PROMPT
     // stack to remember the previous directories
     Stack *directoryStack;
     int scriptInput = 0;
     #endif
+    BackgroundList *backgroundList;
 
     // variables to remember the allocated memory to free in case of an error
     Chain *lastChain = NULL;
@@ -69,7 +74,7 @@
 
 %%
 
-input                   : inputline NEWLINE input
+input                   : inputline NEWLINE { printPrompt(); } input
                         | error NEWLINE { freeError(); yyerrok; } input
                         | /* empty */
 
@@ -130,9 +135,7 @@ builtin                 : EXIT_KEYWORD { $$ = BIC_EXIT; }
  * write your main function and such. */
 
 void finalizeParser() {
-    if (status != NULL) {
-        free(status);
-    }
+    free(status);
     if (currentPath != NULL) {
         free(currentPath);
     }
@@ -141,18 +144,24 @@ void finalizeParser() {
         freeStack(directoryStack);
     }
     #endif
+    if (backgroundList != NULL) {
+        freeBackgroundList(backgroundList);
+    }
     finalizeLexer();
 }
 
 void yyerror (char *msg) {
     printColor("\033[0;31m", "Error: invalid syntax!\n");
-    // "finalizeParser"();
-    // exit(EXIT_SUCCESS);  /* EXIT_SUCCESS because we use Themis */
+    printPrompt();
 }
 
 int main(int argc, char **argv) {
     // Initialize program
     initLexer();
+
+    // initialize the status
+    status = malloc(sizeof(int));
+    *status = 0;
 
     #if EXT_PROMPT
     if (argc > 1) {
@@ -180,6 +189,16 @@ int main(int argc, char **argv) {
     // initialize the stack
     directoryStack = createStack();
     #endif
+
+    // initialize the background list
+    backgroundList = createBackgroundList();
+
+    // set the int signal handler for main
+    struct sigaction sigint;
+    sigemptyset(&sigint.sa_mask);
+    sigint.sa_flags = SA_RESTART;
+    sigint.sa_handler = &sigIntHandler;
+    sigaction(SIGINT, &sigint, NULL);
 
     // Start parsing process
     yyparse();

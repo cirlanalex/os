@@ -9,6 +9,7 @@
 #if EXT_PROMPT
 #include "stack.h"
 #endif
+#include "list.h"
 
 extern int *status;
 extern char *currentPath;
@@ -27,6 +28,10 @@ extern Stack *directoryStack;
 extern int scriptInput;
 #endif
 
+extern BackgroundList *backgroundList;
+
+int foregroundRunning = 0;
+
 void printColor(char *color, char *msg) {
     #if EXT_PROMPT
     fprintf(stdout, "%s%s\x1b[0m", color, msg);
@@ -44,11 +49,49 @@ void printPrompt() {
     #endif
 }
 
+// terminate the chain with error
+void terminateChainError(Chain *chain, char *msg) {
+    printColor("\033[0;31m", msg);
+    freeChain(chain);
+    exit(EXIT_SUCCESS); /* EXIT_SUCCESS because we use Themis */
+}
+
+// handle the child signal
+void sigChildHandler(int signo) {
+    pid_t pid;
+    int status;
+    while ((pid = waitpid(-1, &status, WNOHANG)) > 0) {
+        removeBackgroundProcessByPID(backgroundList, pid);
+        printf("Process %d has finished with status %d\n", pid, WEXITSTATUS(status));
+    }
+}
+
+// handle the int signal
+void sigIntHandler(int signo) {
+    // check if all background processes are finished
+    if (!isEmptyBackgroundList(backgroundList)) {
+        printColor("\033[0;31m", "Error: there are still background processes running!\n");
+        *status = 2;
+        return;
+    }
+    printBackgroundList(backgroundList);
+    freeError();
+    finalizeParser();
+    exit(EXIT_SUCCESS); /* EXIT_SUCCESS because we use Themis */
+}
+
+
 // handle built-in commands
 void runBuiltInCommand(Chain *chain) {
     Command *command = chain->BuiltInCommand;
     switch (command->builtInCommand) {
         case BIC_EXIT:
+            // check if all background processes are finished
+            if (!isEmptyBackgroundList(backgroundList)) {
+                printColor("\033[0;31m", "Error: there are still background processes running!\n");
+                *status = 2;
+                return;
+            }
             int exitStatus = 0;
             if (command->commandArgs->numArgs > 0) {
                 exitStatus = command->commandArgs->args[0] != NULL ? atoi(command->commandArgs->args[0]) : 0; // exit with the argument if it exists
@@ -117,6 +160,13 @@ void runBuiltInCommand(Chain *chain) {
 
 // handle running commands
 int runCommand(Command *command, int pipeIn[2], int pipeOut[2], int hasInput, int hasOutput, int input, int output, int error) {
+    // ignore the SIGINT signal for main
+    struct sigaction sigint;
+    sigemptyset(&sigint.sa_mask);
+    sigint.sa_flags = SA_RESTART;
+    sigint.sa_handler = SIG_IGN;
+    sigaction(SIGINT, &sigint, NULL);
+
     pid_t pid = fork();
 
     if (pid < 0) {
@@ -124,6 +174,20 @@ int runCommand(Command *command, int pipeIn[2], int pipeOut[2], int hasInput, in
         freeCommand(command);
         exit(EXIT_SUCCESS); /* EXIT_SUCCESS because we use Themis */
     } else if (pid == 0) {
+        // reset the child signal handler for the child processes
+        struct sigaction sigchild;
+        sigemptyset(&sigchild.sa_mask);
+        sigchild.sa_flags = SA_RESTART;
+        sigchild.sa_handler = SIG_DFL;
+        sigaction(SIGCHLD, &sigchild, NULL);
+
+        // reset the int signal handler for the child processes
+        struct sigaction sigint;
+        sigemptyset(&sigint.sa_mask);
+        sigint.sa_flags = SA_RESTART;
+        sigint.sa_handler = SIG_DFL;
+        sigaction(SIGINT, &sigint, NULL);
+
         // child code
         if (error != -1) {
             // send the error to the file
@@ -141,7 +205,7 @@ int runCommand(Command *command, int pipeIn[2], int pipeOut[2], int hasInput, in
                 close(pipeIn[0]);
             }
         } else {
-            if (input != STDIN_FILENO) {
+            if (input != -1 && input != STDIN_FILENO) {
                 // get the input from the file
                 dup2(input, STDIN_FILENO);
                 // close the file
@@ -173,37 +237,168 @@ int runCommand(Command *command, int pipeIn[2], int pipeOut[2], int hasInput, in
     return pid;
 }
 
-// handle running chains
-void runChain(Chain *chain) {
-    if (activeOperator == AO_AND_STATEMENT) { // TODO IN FUTURE ASSIGNMENT
-        printPrompt();
-        freeChain(chain);
-        return;
+// check if the files are equal
+int checkFiles(char **inputFiles, int numInputFiles, char **outputFiles, int numOutputFiles, char **errorFiles, int numErrorFiles) {
+    #if EXT_PROMPT
+    // check if any of the input, output, or error files are the same
+    for (int i = 0; i < numInputFiles; i++) {
+        for (int j = 0; j < numOutputFiles; j++) {
+            if (inputFiles[i] != NULL && outputFiles[j] != NULL && strcmp(inputFiles[i], outputFiles[j]) == 0) {
+                printColor("\033[0;31m", "Error: input and output files cannot be equal!\n");
+                return 0;
+            }
+        }
+        for (int j = 0; j < numErrorFiles; j++) {
+            if (inputFiles[i] != NULL && errorFiles[j] != NULL && strcmp(inputFiles[i], errorFiles[j]) == 0) {
+                printColor("\033[0;31m", "Error: input and error files cannot be equal!\n");
+                return 0;
+            }
+        }
     }
-    // for && don't run if the previous chain failed
-    if (activeOperator == AO_AND_OPERATOR && status != NULL && *status != 0) {
-        printPrompt();
-        freeChain(chain);
-        return;
+    for (int i = 0; i < numOutputFiles; i++) {
+        for (int j = 0; j < numErrorFiles; j++) {
+            if (outputFiles[i] != NULL && errorFiles[j] != NULL && strcmp(outputFiles[i], errorFiles[j]) == 0) {
+                printColor("\033[0;31m", "Error: output and error files cannot be equal!\n");
+                return 0;
+            }
+        }
     }
-    // for || don't run if the previous chain succeeded
-    if (activeOperator == AO_OR_OPERATOR && status != NULL && *status == 0) {
-        printPrompt();
-        freeChain(chain);
-        return;
+    #else
+    // check if input and output files are the same
+    if (inputFiles[0] != NULL && outputFiles[0] != NULL && strcmp(inputFiles[0], outputFiles[0]) == 0) {
+        printColor("\033[0;31m", "Error: input and output files cannot be equal!\n");
+        return 0;
     }
-    if (status == NULL) {
-        status = malloc(sizeof(int));
-        *status = 0;
+    #endif
+
+    return 1;
+}
+
+// open the error file
+int openErrorFile(char *errorFile, Chain *chain) {
+    int error = -1;
+    if (errorFile != NULL) {
+        error = open(errorFile, O_WRONLY | O_CREAT | O_TRUNC);
+        if (error < 0) {
+            terminateChainError(chain, "Error: error file could not be created!\n");
+        }
     }
-    // run the built-in command if it exists
-    if (chain->BuiltInCommand != NULL) {
-        runBuiltInCommand(chain);
-        printPrompt();
-        freeChain(chain);
-        return;
+
+    return error;
+}
+
+// open the input files
+int openInputFiles(char **inputFiles, int numInputFiles, Chain *chain) {
+    int input = -1;
+    if (inputFiles[0] != NULL) {
+        #if EXT_PROMPT
+        int pipeInput[2];
+        if (pipe(pipeInput) < 0) {
+            terminateChainError(chain, "Error: pipe() could not be created!\n");
+        }
+        input = pipeInput[0];
+        // copy all input into the pipe
+        for (int i = 0; i < numInputFiles; i++) {
+            // open the input file
+            int file = open(inputFiles[i], O_RDONLY);
+            if (file < 0) {
+                terminateChainError(chain, "Error: input file not found!\n");
+            }
+            // copy the input into the pipe
+            char buffer[4096];
+            ssize_t len;
+            while ((len = read(file, buffer, 4096)) > 0) {
+                write(pipeInput[1], buffer, len);
+            }
+            write(pipeInput[1], "\n", 1);
+            close(file);
+        }
+        close(pipeInput[1]);
+        #else
+        input = open(inputFiles[0], O_RDONLY);
+        if (input < 0) {
+            terminateChainError(chain, "Error: input file not found!\n");
+        }
+        #endif
+    } else {
+        // check if the process should be ran in the background
+        if (futureOperator != AO_AND_STATEMENT) {
+            input = STDIN_FILENO;
+        }
     }
-    // run the pipeline if it exists
+
+    return input;
+}
+
+// open the output file
+int openOutputFile(char *outputFile, Chain *chain) {
+    int output = -1;
+    if (outputFile != NULL) {
+        output = open(outputFile, O_WRONLY | O_CREAT | O_TRUNC);
+        if (output < 0) {
+            terminateChainError(chain, "Error: output file could not be created!\n");
+        }
+    } else {
+        output = STDOUT_FILENO;
+    }
+
+    return output;
+}
+
+// copy the output into the files
+void duplicateOutput(char **outputFiles, int numOutputFiles, Chain *chain) {
+    if (outputFiles[0] != NULL) {
+        for (int i = 1; i < numOutputFiles; i++) {
+            // open the first output file
+            int output = open(outputFiles[0], O_RDONLY);
+            if (output < 0) {
+                terminateChainError(chain, "Error: output file could not be read!\n");
+            }
+            // open the copy of the output file
+            int copy = open(outputFiles[i], O_WRONLY | O_CREAT | O_TRUNC);
+            if (copy < 0) {
+                terminateChainError(chain, "Error: output file could not be created!\n");
+            }
+            // copy the output into the file
+            char buffer[4096];
+            ssize_t len;
+            while ((len = read(output, buffer, 4096)) > 0) {
+                write(copy, buffer, len);
+            }
+            close(copy);
+            close(output);
+        }
+    }
+}
+
+// copy the error into the files
+void duplicateError(char **errorFiles, int numErrorFiles, Chain *chain) {
+    if (errorFiles[0] != NULL) {
+        for (int i = 1; i < numErrorFiles; i++) {
+            // open the first error file
+            int error = open(errorFiles[0], O_RDONLY);
+            if (error < 0) {
+                terminateChainError(chain, "Error: error file could not be read!\n");
+            }
+            // open the copy of the error file
+            int copy = open(errorFiles[i], O_WRONLY | O_CREAT | O_TRUNC);
+            if (copy < 0) {
+                terminateChainError(chain, "Error: error file could not be created!\n");
+            }
+            // copy the error into the file
+            char buffer[4096];
+            ssize_t len;
+            while ((len = read(error, buffer, 4096)) > 0) {
+                write(copy, buffer, len);
+            }
+            close(copy);
+            close(error);
+        }
+    }
+}
+
+// handle the pipeline
+void runPipeline(Chain *chain) {
     char **inputFiles = chain->pipelineRedirections->redirections->inputFiles->files;
     char **outputFiles = chain->pipelineRedirections->redirections->outputFiles->files;
     char **errorFiles = chain->pipelineRedirections->redirections->errorFiles->files;
@@ -212,59 +407,10 @@ void runChain(Chain *chain) {
     int numOutputFiles = chain->pipelineRedirections->redirections->outputFiles->numFiles;
     int numErrorFiles = chain->pipelineRedirections->redirections->errorFiles->numFiles;
 
-    #if EXT_PROMPT
-    // check if any of the input, output, or error files are the same
-    for (int i = 0; i < numInputFiles; i++) {
-        for (int j = 0; j < numOutputFiles; j++) {
-            if (inputFiles[i] != NULL && outputFiles[j] != NULL && strcmp(inputFiles[i], outputFiles[j]) == 0) {
-                printColor("\033[0;31m", "Error: input and output files cannot be equal!\n");
-                printPrompt();
-                freeChain(chain);
-                *status = 2;
-                return;
-            }
-        }
-        for (int j = 0; j < numErrorFiles; j++) {
-            if (inputFiles[i] != NULL && errorFiles[j] != NULL && strcmp(inputFiles[i], errorFiles[j]) == 0) {
-                printColor("\033[0;31m", "Error: input and error files cannot be equal!\n");
-                printPrompt();
-                freeChain(chain);
-                *status = 2;
-                return;
-            }
-        }
-    }
-    for (int i = 0; i < numOutputFiles; i++) {
-        for (int j = 0; j < numErrorFiles; j++) {
-            if (outputFiles[i] != NULL && errorFiles[j] != NULL && strcmp(outputFiles[i], errorFiles[j]) == 0) {
-                printColor("\033[0;31m", "Error: output and error files cannot be equal!\n");
-                printPrompt();
-                freeChain(chain);
-                *status = 2;
-                return;
-            }
-        }
-    }
-    #else
-    // check if input and output files are the same
-    if (inputFiles[0] != NULL && outputFiles[0] != NULL && strcmp(inputFiles[0], outputFiles[0]) == 0) {
-        printColor("\033[0;31m", "Error: input and output files cannot be equal!\n");
-        printPrompt();
+    if (!checkFiles(inputFiles, numInputFiles, outputFiles, numOutputFiles, errorFiles, numErrorFiles)) {
         freeChain(chain);
         *status = 2;
         return;
-    }
-    #endif
-
-    int error = -1;
-
-    if (errorFiles[0] != NULL) {
-        error = open(errorFiles[0], O_WRONLY | O_CREAT | O_TRUNC);
-        if (error < 0) {
-            printColor("\033[0;31m", "Error: error file could not be created!\n");
-            freeChain(chain);
-            exit(EXIT_SUCCESS); /* EXIT_SUCCESS because we use Themis */
-        }
     }
 
     int numCommands = chain->pipelineRedirections->pipeline->numCommands;
@@ -274,14 +420,14 @@ void runChain(Chain *chain) {
         pipeFiles[i] = malloc(2 * sizeof(int));
         // create the pipes
         if (pipe(pipeFiles[i]) < 0) {
-            printColor("\033[0;31m", "Error: pipe() could not be created!\n");
-            freeChain(chain);
-            exit(EXIT_SUCCESS); /* EXIT_SUCCESS because we use Themis */
+            terminateChainError(chain, "Error: pipe() could not be created!\n");
         }
     }
 
     // the ids of the child processes
     int *ids = malloc(numCommands * sizeof(int));
+
+    int error = openErrorFile(errorFiles[0], chain);
 
     for (int i = 0; i < numCommands; i++) {
         Command *command = chain->pipelineRedirections->pipeline->commands[i];
@@ -307,59 +453,12 @@ void runChain(Chain *chain) {
 
         // for the first command
         if (i == 0) {
-            if (inputFiles[0] != NULL) {
-                #if EXT_PROMPT
-                int pipeInput[2];
-                if (pipe(pipeInput) < 0) {
-                    printColor("\033[0;31m", "Error: pipe() could not be created!\n");
-                    freeChain(chain);
-                    exit(EXIT_SUCCESS); /* EXIT_SUCCESS because we use Themis */
-                }
-                input = pipeInput[0];
-                // copy all input into the pipe
-                for (int i = 0; i < numInputFiles; i++) {
-                    // open the input file
-                    int file = open(inputFiles[i], O_RDONLY);
-                    if (file < 0) {
-                        printColor("\033[0;31m", "Error: input file not found!\n");
-                        freeChain(chain);
-                        exit(EXIT_SUCCESS); /* EXIT_SUCCESS because we use Themis */
-                    }
-                    // copy the input into the pipe
-                    char buffer[4096];
-                    ssize_t len;
-                    while ((len = read(file, buffer, 4096)) > 0) {
-                        write(pipeInput[1], buffer, len);
-                    }
-                    write(pipeInput[1], "\n", 1);
-                    close(file);
-                }
-                close(pipeInput[1]);
-                #else
-                input = open(inputFiles[0], O_RDONLY);
-                if (input < 0) {
-                    printColor("\033[0;31m", "Error: input file not found!\n");
-                    freeChain(chain);
-                    exit(EXIT_SUCCESS); /* EXIT_SUCCESS because we use Themis */
-                }
-                #endif
-            } else {
-                input = STDIN_FILENO;
-            }
+            input = openInputFiles(inputFiles, numInputFiles, chain);
         }
 
         // for the last command
         if (i == numCommands - 1) {
-            if (outputFiles[0] != NULL) {
-                output = open(outputFiles[0], O_WRONLY | O_CREAT | O_TRUNC);
-                if (output < 0) {
-                    printColor("\033[0;31m", "Error: output file could not be created!\n");
-                    freeChain(chain);
-                    exit(EXIT_SUCCESS); /* EXIT_SUCCESS because we use Themis */
-                }
-            } else {
-                output = STDOUT_FILENO;
-            }
+            output = openOutputFile(outputFiles[0], chain);
         }
 
         ids[i] = runCommand(command, pipeIn, pipeOut, hasInput, hasOutput, input, output, error);
@@ -389,6 +488,13 @@ void runChain(Chain *chain) {
         }
     }
 
+    // set the int signal handler for main
+    struct sigaction sigint;
+    sigemptyset(&sigint.sa_mask);
+    sigint.sa_flags = SA_RESTART;
+    sigint.sa_handler = &sigIntHandler;
+    sigaction(SIGINT, &sigint, NULL);
+
     for (int i = 0; i < numCommands - 1; i++) {
         free(pipeFiles[i]);
     }
@@ -397,63 +503,79 @@ void runChain(Chain *chain) {
     free(pipeFiles);
 
     // copy the output into all the given files
-    if (outputFiles[0] != NULL) {
-        for (int i = 1; i < numOutputFiles; i++) {
-            // open the first output file
-            int output = open(outputFiles[0], O_RDONLY);
-            if (output < 0) {
-                printColor("\033[0;31m", "Error: output file could not be read!\n");
-                freeChain(chain);
-                exit(EXIT_SUCCESS); /* EXIT_SUCCESS because we use Themis */
-            }
-            // open the copy of the output file
-            int copy = open(outputFiles[i], O_WRONLY | O_CREAT | O_TRUNC);
-            if (copy < 0) {
-                printColor("\033[0;31m", "Error: output file could not be created!\n");
-                freeChain(chain);
-                exit(EXIT_SUCCESS); /* EXIT_SUCCESS because we use Themis */
-            }
-            // copy the output into the file
-            char buffer[4096];
-            ssize_t len;
-            while ((len = read(output, buffer, 4096)) > 0) {
-                write(copy, buffer, len);
-            }
-            close(copy);
-            close(output);
-        }
-    }
+    duplicateOutput(outputFiles, numOutputFiles, chain);
 
     // copy the error into all the given files
-    if (errorFiles[0] != NULL) {
-        for (int i = 1; i < numErrorFiles; i++) {
-            // open the first error file
-            int error = open(errorFiles[0], O_RDONLY);
-            if (error < 0) {
-                printColor("\033[0;31m", "Error: error file could not be read!\n");
-                freeChain(chain);
-                exit(EXIT_SUCCESS); /* EXIT_SUCCESS because we use Themis */
-            }
-            // open the copy of the error file
-            int copy = open(errorFiles[i], O_WRONLY | O_CREAT | O_TRUNC);
-            if (copy < 0) {
-                printColor("\033[0;31m", "Error: error file could not be created!\n");
-                freeChain(chain);
-                exit(EXIT_SUCCESS); /* EXIT_SUCCESS because we use Themis */
-            }
-            // copy the error into the file
-            char buffer[4096];
-            ssize_t len;
-            while ((len = read(error, buffer, 4096)) > 0) {
-                write(copy, buffer, len);
-            }
-            close(copy);
-            close(error);
+    duplicateError(errorFiles, numErrorFiles, chain);
+
+    freeChain(chain);
+}
+
+// run chain component
+void runChainComponent(Chain *chain) {
+    // run the built-in command if it exists
+    if (chain->BuiltInCommand != NULL) {
+        runBuiltInCommand(chain);
+        freeChain(chain);
+        return;
+    }
+    // run the pipeline if it exists
+    runPipeline(chain);
+}
+
+// handle running chains
+void runChain(Chain *chain) {
+    // for && don't run if the previous chain failed
+    if (activeOperator == AO_AND_OPERATOR && status != NULL && *status != 0) {
+        freeChain(chain);
+        return;
+    }
+    // for || don't run if the previous chain succeeded
+    if (activeOperator == AO_OR_OPERATOR && status != NULL && *status == 0) {
+        freeChain(chain);
+        return;
+    }
+    // run the process in the background
+    if (futureOperator == AO_AND_STATEMENT) {
+        // set the signal handler for the child processes
+        struct sigaction sigchild;
+        sigemptyset(&sigchild.sa_mask);
+        sigchild.sa_flags = SA_RESTART;
+        sigchild.sa_handler = &sigChildHandler;
+        sigaction(SIGCHLD, &sigchild, NULL);
+
+        // fork the program to run the chain in the background
+        pid_t pid = fork();
+        if (pid < 0) {
+            printColor("\033[0;31m", "Error: fork() could not create a child process!\n");
+            freeChain(chain);
+            exit(EXIT_SUCCESS); /* EXIT_SUCCESS because we use Themis */
+        } else if (pid == 0) {
+            // reset the signal handler for the child processes
+            struct sigaction sigchild;
+            sigemptyset(&sigchild.sa_mask);
+            sigchild.sa_flags = SA_RESTART;
+            sigchild.sa_handler = SIG_DFL;
+            sigaction(SIGCHLD, &sigchild, NULL);
+
+            // reset the int signal handler for the child processes
+            struct sigaction sigint;
+            sigemptyset(&sigint.sa_mask);
+            sigint.sa_flags = SA_RESTART;
+            sigint.sa_handler = SIG_DFL;
+            sigaction(SIGINT, &sigint, NULL);
+
+            runChainComponent(chain);
+            exit(EXIT_SUCCESS); /* EXIT_SUCCESS because we use Themis */
+        } else {
+            // add the process to the background list
+            addBackgroundProcess(backgroundList, pid);
+            freeChain(chain);
+            return;
         }
     }
-
-    printPrompt();
-    freeChain(chain);
+    // run the chain in the foreground
+    runChainComponent(chain);
 }
 
 void freeError() {
