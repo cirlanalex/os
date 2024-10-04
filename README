@@ -1,0 +1,25 @@
+# Lab 1 bonus
+
+## Display a prompt before each input line
+This was done, and it displays the directory of the user. It also updates after using CD.
+
+## Implement a built-in cd command to change directories
+This bonus has been implemented as a mandatory feature in lab 3.
+
+## Add support for displaying colors.
+Every error was set the text color as red.
+
+
+# Lab 3 bonus
+
+## Entering a script filename as the first argument
+In main the program can now receive a filename as the first argument. If this is the case, the STDIN is swapped with the input file descriptor. When starting the parser, the contents of the file will be taken as input. After the script is finished, the shell closes.
+
+## Redirect stderr
+The "n>" redirection has been added to the lexer and the logic for allowing error redirect has been added to the parser. If a redirect is provided, all processes in a pipeline will swap STDERR with the given file.
+
+## Multiple input and output redirects
+Multiple redirects can be provided for input, output and error output. The logic in the parser has been changed so multiple files can be provided, in any order. For the pipeline, all inputs will be gathered into one and only then will be passed to the first command. For the output and error output, the system works in reverse. The output of the pipeline and the error output will be printed into their first respective files. Then, the contents will be duplicated in all redirection files. Additionally, one file cannot be used at the time by more than one of the three redirections. One file can, however, be used more than once by the same redirection (e.g. > file1 > file1).
+
+## Builtin commands pushd and popd
+A stack of directories has been created. Pushd pushes the current path into the stack and switches to the given directory. Popd pops the last entry from the stack and switches to that path.

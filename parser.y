@@ -1,8 +1,15 @@
 %{
-    #include <stdio.h>
-    #include <stdlib.h>
-    #include <string.h>
-    #include <unistd.h>
+#define _GNU_SOURCE
+#include <stdio.h>
+#include <stdlib.h>
+#include <unistd.h>
+#include <sys/wait.h>
+#include <string.h>
+#include <fcntl.h>
+    #if EXT_PROMPT
+    #include "stack.h"
+    #endif
+    #include "list.h"
     #include "structs.h"
     #include "usage.h"
 
@@ -12,6 +19,23 @@
     extern void finalizeLexer();
     extern void printColor(char *color, char *msg);
     extern void printPrompt();
+    extern void freeError();
+    extern void sigIntHandler(int signo);
+
+    #if EXT_PROMPT
+    // stack to remember the previous directories
+    Stack *directoryStack;
+    int scriptInput = 0;
+    #endif
+    BackgroundList *backgroundList;
+
+    // variables to remember the allocated memory to free in case of an error
+    Chain *lastChain = NULL;
+    Pipeline *lastPipeline = NULL;
+    Redirections *lastRedirections = NULL;
+    Command *lastCommand = NULL;
+    Args *lastArgs = NULL;
+    void freeError();
 
     // remember the previous operator to be used
     ActiveOperator activeOperator = AO_NONE;
@@ -23,7 +47,7 @@
     char *currentPath = NULL;
 %}
 
-%token EXIT_KEYWORD AND_OP OR_OP SEMICOLON NEWLINE AND_STATEMENT OR_STATEMENT INPUT_REDIRECT OUTPUT_REDIRECT STATUS_KEYWORD
+%token EXIT_KEYWORD AND_OP OR_OP SEMICOLON NEWLINE AND_STATEMENT OR_STATEMENT INPUT_REDIRECT OUTPUT_REDIRECT ERROR_REDIRECT STATUS_KEYWORD CD_KEYWORD PUSHD_KEYWORD POPD_KEYWORD KILL_KEYWORD JOBS_KEYWORD
 
 %token <stringValue> STRING
 %token <stringValue> WORD
@@ -31,42 +55,59 @@
 %type <builtInCommand> builtin
 %type <args> options
 %type <executableCommand> command
-%type <executableCommand> pipeline    // TO CHANGE IN FUTURE ASSIGNMENT
-%type <executableCommand> chain       // TO CHANGE IN FUTURE ASSIGNMENT
+%type <pipeline> pipeline
+%type <redirections> redirections
+%type <stringValue> inputRedirect
+%type <stringValue> outputRedirect
+%type <stringValue> errorRedirect
+%type <chain> chain
 
 %union {
-    char *stringValue;
+    Chain *chain;
+    BuiltInCommand builtInCommand;
+    Pipeline *pipeline;
+    Redirections *redirections;
     Command *executableCommand;
     Args *args;
-    BuiltInCommand builtInCommand;
+    char *stringValue;
 }
 
 %%
 
-inputline               : chain AND_STATEMENT { futureOperator = AO_AND_STATEMENT; runCommand($1); activeOperator = AO_AND_STATEMENT; } inputline
-                        | chain AND_OP { futureOperator = AO_AND_OPERATOR; runCommand($1); activeOperator = AO_AND_OPERATOR; } inputline
-                        | chain OR_OP { futureOperator = AO_OR_OPERATOR; runCommand($1); activeOperator = AO_OR_OPERATOR; } inputline
-                        | chain SEMICOLON { futureOperator = AO_SEMICOLON; runCommand($1); activeOperator = AO_SEMICOLON; } inputline  // allow use of semicolon as a command separator
-                        | chain NEWLINE { futureOperator = AO_NEWLINE; runCommand($1); activeOperator = AO_NEWLINE; } inputline      // allow use of newline as a command separator
-                        | chain { futureOperator = AO_NONE; runCommand($1); activeOperator = AO_NONE; }
+input                   : inputline NEWLINE { printPrompt(); } input
+                        | error NEWLINE { freeError(); yyerrok; } input
+                        | /* empty */
+
+inputline               : chain AND_STATEMENT { futureOperator = AO_AND_STATEMENT; runChain($1); activeOperator = AO_AND_STATEMENT; lastChain = NULL; } inputline
+                        | chain AND_OP { futureOperator = AO_AND_OPERATOR; runChain($1); activeOperator = AO_AND_OPERATOR; lastChain = NULL; } inputline
+                        | chain OR_OP { futureOperator = AO_OR_OPERATOR; runChain($1); activeOperator = AO_OR_OPERATOR; lastChain = NULL; } inputline
+                        | chain SEMICOLON { futureOperator = AO_SEMICOLON; runChain($1); activeOperator = AO_SEMICOLON; lastChain = NULL; } inputline  // allow use of semicolon as a command separator
+                        | chain { futureOperator = AO_NONE; runChain($1); activeOperator = AO_NONE; lastChain = NULL; }
                         | SEMICOLON { futureOperator = AO_SEMICOLON; activeOperator = AO_SEMICOLON; } inputline    // inappropriate semicolon usage is not considered an error
-                        | NEWLINE { futureOperator = AO_NEWLINE; activeOperator = AO_NEWLINE; } inputline        // inappropriate newline usage is not considered an error
                         | /* empty */ { futureOperator = AO_NONE; activeOperator = AO_NONE; }
                         ;
 
-chain                   : pipeline redirections { $$ = $1; } // redirections are not implemented yet
-                        | builtin options { $$ = createBuiltInCommand($1, $2); }
+chain                   : pipeline redirections { $$ = createChain(createPipelineRedirections($1, $2), NULL); }
+                        | builtin options { $$ = createChain(NULL, createBuiltInCommand($1, $2)); }
                         ;
 
-redirections            : INPUT_REDIRECT WORD OUTPUT_REDIRECT WORD { free($2); free($4); }  // TODO IN FUTURE ASSIGNMENT
-                        | OUTPUT_REDIRECT WORD INPUT_REDIRECT WORD { free($2); free($4); }  // TODO IN FUTURE ASSIGNMENT
-                        | OUTPUT_REDIRECT WORD { free($2); }                                // TODO IN FUTURE ASSIGNMENT
-                        | INPUT_REDIRECT WORD { free($2); }                                 // TODO IN FUTURE ASSIGNMENT
-                        | /* empty */
+redirections            : redirections inputRedirect { $$ = addRedirection($1, $2, R_INPUT); if ($$ == NULL) { goto yyerrlab; } }
+                        | redirections outputRedirect { $$ = addRedirection($1, $2, R_OUTPUT); if ($$ == NULL) { goto yyerrlab; } }
+                        | redirections errorRedirect { $$ = addRedirection($1, $2, R_ERROR); }
+                        | /* empty */ { $$ = createRedirections(); }
                         ;
 
-pipeline                : command OR_STATEMENT pipeline { $$ = $1; }                        // TODO IN FUTURE ASSIGNMENT
-                        | command { $$ = $1; }
+inputRedirect           : INPUT_REDIRECT WORD { $$ = $2; }
+                        ;
+
+outputRedirect          : OUTPUT_REDIRECT WORD { $$ = $2; }
+                        ;
+
+errorRedirect           : ERROR_REDIRECT WORD { $$ = $2; }
+                        ;
+
+pipeline                : pipeline OR_STATEMENT command { $$ = addCommandToPipeline($1, $3); }
+                        | command { $$ = createPipeline($1); }
                         ;
 
 command                 : WORD options { $$ = createCommand($1, $2); }
@@ -76,10 +117,20 @@ options                 : options STRING { $$ = addArg($1, $2);}
                         | options WORD { $$ = addArg($1, $2); }
                         | options EXIT_KEYWORD { $$ = addArg($1, strdup("exit")); }
                         | options STATUS_KEYWORD { $$ = addArg($1, strdup("status")); }
-                        | /* empty */ { $$ = createArgs(); }
+                        | options CD_KEYWORD { $$ = addArg($1, strdup("cd")); }
+                        | options PUSHD_KEYWORD { $$ = addArg($1, strdup("pushd")); }
+                        | options POPD_KEYWORD { $$ = addArg($1, strdup("popd")); }
+                        | options KILL_KEYWORD { $$ = addArg($1, strdup("kill")); }
+                        | options JOBS_KEYWORD { $$ = addArg($1, strdup("jobs")); }
+                        | /* empty */ { $$ = createArgs(); lastArgs = $$; }
 
 builtin                 : EXIT_KEYWORD { $$ = BIC_EXIT; }
                         | STATUS_KEYWORD { $$ = BIC_STATUS; }
+                        | CD_KEYWORD { $$ = BIC_CD; }
+                        | PUSHD_KEYWORD { $$ = BIC_PUSHD; }
+                        | POPD_KEYWORD { $$ = BIC_POPD; }
+                        | KILL_KEYWORD { $$ = BIC_KILL; }
+                        | JOBS_KEYWORD { $$ = BIC_JOBS; }
                         ;
 
 %%
@@ -88,24 +139,48 @@ builtin                 : EXIT_KEYWORD { $$ = BIC_EXIT; }
  * write your main function and such. */
 
 void finalizeParser() {
-    if (status != NULL) {
-        free(status);
-    }
+    free(status);
     if (currentPath != NULL) {
         free(currentPath);
+    }
+    #if EXT_PROMPT
+    if (directoryStack != NULL) {
+        freeStack(directoryStack);
+    }
+    #endif
+    if (backgroundList != NULL) {
+        freeBackgroundList(backgroundList);
     }
     finalizeLexer();
 }
 
 void yyerror (char *msg) {
     printColor("\033[0;31m", "Error: invalid syntax!\n");
-    finalizeParser();
-    exit(EXIT_SUCCESS);  /* EXIT_SUCCESS because we use Themis */
+    printPrompt();
 }
 
-int main() {
+int main(int argc, char **argv) {
     // Initialize program
     initLexer();
+
+    // initialize the status
+    status = malloc(sizeof(int));
+    *status = 0;
+
+    #if EXT_PROMPT
+    if (argc > 1) {
+        scriptInput = 1;
+        // open the script file
+        int scriptFile = open(argv[1], O_RDONLY);
+        if (scriptFile == -1) {
+            printColor("\033[0;31m", "Error: cannot open the script file!\n");
+            exit(EXIT_SUCCESS); /* EXIT_SUCCESS because we use Themis */
+        }
+        // redirect the input to the script file
+        dup2(scriptFile, STDIN_FILENO);
+        close(scriptFile);
+    }
+    #endif
 
     // Get current path
     currentPath = malloc(1024 * sizeof(char));
@@ -113,6 +188,21 @@ int main() {
     getcwd(currentPath, 1024 * sizeof(char));
 
     printPrompt();
+
+    #if EXT_PROMPT
+    // initialize the stack
+    directoryStack = createStack();
+    #endif
+
+    // initialize the background list
+    backgroundList = createBackgroundList();
+
+    // set the int signal handler for main
+    struct sigaction sigint;
+    sigemptyset(&sigint.sa_mask);
+    sigint.sa_flags = SA_RESTART;
+    sigint.sa_handler = &sigIntHandler;
+    sigaction(SIGINT, &sigint, NULL);
 
     // Start parsing process
     yyparse();

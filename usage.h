@@ -3,7 +3,8 @@
 
 #include "structs.h"
 
-void builtInCommandHandler(Command *command);
-void runCommand(Command *command);
+void runChain(Chain *chain);
+void freeError();
+void sigIntHandler(int signo);
 
 #endif
